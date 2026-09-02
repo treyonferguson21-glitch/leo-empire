@@ -13,12 +13,6 @@ PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
 
 SPECIAL_USERS = [
-    "1502791757618872342",
-    "1391635894045380619",
-    "268125561325486080",
-    "1263575739714899998",
-    "1532561566271017009",
-    "1108712250199523468",
     "1517924890370375928",
 ]
 
@@ -250,9 +244,9 @@ def parse_duration(text: str):
 async def on_ready():
     print(f"Logged in as {bot.user}")
     await bot.change_presence(
-        activity=discord.Streaming(
-            name="steal A Lunar",
-            url="https://www.twitch.tv/directory"
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="Leos empire"
         )
     )
     for guild in bot.guilds:
