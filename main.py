@@ -25,11 +25,38 @@ BAN_COMMAND_USERS = [
 # After the bot finds them, it saves the ROLE IDs — so if you rename a role,
 # permissions still work without updating this list.
 ROLES = {
-    1: ["[ TM ] • Test Mod"],
-    2: ["[ S ] • Moderator"],
-    3: ["[ S ] • Senior Mod", "[ H ] • Head Staff"],
-    4: ["[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
-    5: ["[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner"],
+    # Perm level -> role IDs (primary) + optional names (display / fallback only)
+    1: {
+        "ids": [1540435355633975366],  # Test Moderator
+        "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"],
+    },
+    2: {
+        "ids": [1512494871158591779],  # Moderator
+        "names": ["Moderator", "[ S ] • Moderator"],
+    },
+    3: {
+        "ids": [
+            1540434933166776400,  # Senior Mod
+            1543926509520293908,  # Head Staff
+        ],
+        "names": ["Senior Mod", "Head Staff", "[ S ] • Senior Mod", "[ H ] • Head Staff"],
+    },
+    4: {
+        "ids": [
+            1512494871171043540,  # Admin
+            1512494871171043541,  # Manager
+            1543925240705585284,  # Overlord
+        ],
+        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Overlord", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
+    },
+    5: {
+        "ids": [
+            1540425618620162139,  # Founder
+            1512494871171043543,  # Owners
+            1544803993480466563,  # Co owners
+        ],
+        "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners", "[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner"],
+    },
 }
 
 BLACKLISTED_WORDS = [
@@ -75,45 +102,68 @@ def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-sanctions = load_json(SANCTIONS_FILE, {})
+sanctions_data = load_json(SANCTIONS_FILE, {})
 blacklist = load_json(BLACKLIST_FILE, [])
 snipe_data = load_json(SNIPE_FILE, {})
 role_perms = load_json(ROLE_PERMS_FILE, {})  # {guild_id: {"1": [role_id, ...], ...}}
 
-def save_sanctions(): save_json(SANCTIONS_FILE, sanctions)
+def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
 def save_blacklist(): save_json(BLACKLIST_FILE, blacklist)
 def save_snipe(): save_json(SNIPE_FILE, snipe_data)
 def save_role_perms(): save_json(ROLE_PERMS_FILE, role_perms)
 
 # ==================== HELPERS ====================
+def _match_role_exact(guild: discord.Guild, name: str):
+    """Match a role by exact name only (case-insensitive). No substring matching."""
+    name = name.strip()
+    if not name:
+        return None
+    role = discord.utils.find(lambda r, n=name: r.name == n, guild.roles)
+    if role:
+        return role
+    role = discord.utils.find(lambda r, n=name: r.name.lower() == n.lower(), guild.roles)
+    if role:
+        return role
+    if "•" in name:
+        key = name.split("•")[-1].strip()
+        role = discord.utils.find(lambda r, k=key: r.name.lower() == k.lower(), guild.roles)
+        if role:
+            return role
+    return None
+
 def resolve_role_ids(guild: discord.Guild, force: bool = False) -> dict:
     """
-    Map perm levels -> set of role IDs for this guild.
-    Uses saved IDs if present (survives role renames).
-    Otherwise finds roles by the names in ROLES and saves the IDs.
+    Map perm levels -> set of role IDs.
+    Prefer hardcoded IDs in ROLES (always correct).
+    Names are only a fallback if an ID is missing from the guild.
     """
     gid = str(guild.id)
-    if not force and gid in role_perms and role_perms[gid]:
-        return {int(level): set(ids) for level, ids in role_perms[gid].items()}
-
+    # Hardcoded IDs always win unless force re-check from names for missing ones
     mapping = {}
-    for level, names in ROLES.items():
+    used_ids = set()
+    for level in sorted(ROLES.keys(), reverse=True):
+        entry = ROLES[level]
         found = []
-        for name in names:
-            # exact match first
-            role = discord.utils.find(lambda r, n=name: r.name == n, guild.roles)
-            if not role:
-                # case-insensitive exact
-                role = discord.utils.find(lambda r, n=name: r.name.lower() == n.lower(), guild.roles)
-            if not role:
-                # partial: role name contains key part after the bullet
-                key = name.split("•")[-1].strip().lower() if "•" in name else name.lower()
-                role = discord.utils.find(
-                    lambda r, k=key: k and k in r.name.lower(),
-                    guild.roles
-                )
-            if role and role.id not in found:
-                found.append(role.id)
+        # New format: {"ids": [...], "names": [...]}
+        if isinstance(entry, dict):
+            for rid in entry.get("ids", []):
+                if rid not in used_ids:
+                    # Keep even if role missing (still in guild config)
+                    found.append(rid)
+                    used_ids.add(rid)
+            # Name fallback only for IDs not already set
+            for name in entry.get("names", []):
+                role = _match_role_exact(guild, name)
+                if role and role.id not in used_ids:
+                    found.append(role.id)
+                    used_ids.add(role.id)
+        else:
+            # Legacy list-of-names format
+            for name in entry:
+                role = _match_role_exact(guild, name)
+                if role and role.id not in used_ids:
+                    found.append(role.id)
+                    used_ids.add(role.id)
         mapping[level] = found
 
     role_perms[gid] = {str(k): v for k, v in mapping.items()}
@@ -162,15 +212,15 @@ async def send_log(embed: discord.Embed):
 
 def add_sanction(user_id: int, reason: str, mod_id: int):
     uid = str(user_id)
-    if uid not in sanctions:
-        sanctions[uid] = []
+    if uid not in sanctions_data:
+        sanctions_data[uid] = []
     entry = {
-        "id": len(sanctions[uid]) + 1,
+        "id": len(sanctions_data[uid]) + 1,
         "reason": reason,
         "date": datetime.now().strftime("%d/%m/%Y"),
         "moderator": str(mod_id)
     }
-    sanctions[uid].append(entry)
+    sanctions_data[uid].append(entry)
     save_sanctions()
     return entry
 
@@ -376,7 +426,9 @@ async def perms(ctx):
                 mentions.append(role.mention)
         # fallback to configured names if IDs not resolved yet
         if not mentions:
-            for name in ROLES.get(level, []):
+            entry = ROLES.get(level, {})
+            names = entry.get("names", entry) if isinstance(entry, dict) else entry
+            for name in names:
                 role = discord.utils.find(lambda r, n=name: r.name == n or r.name.lower() == n.lower(), ctx.guild.roles)
                 mentions.append(role.mention if role else f"`{name}`")
         value = "\n".join(mentions) if mentions else "None found"
@@ -432,7 +484,7 @@ async def sanctions(ctx, target: str = None):
         user = await get_target(ctx, target)
         if user is None:
             user = ctx.author
-        lst = sanctions.get(str(user.id), [])
+        lst = sanctions_data.get(str(user.id), [])
         if not lst:
             return await empty_result(ctx, f"**{user}** has no sanctions.")
         text = "\n".join(f"{s['id']} - {s['date']}: {s['reason']}" for s in lst)
@@ -483,11 +535,11 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
 
     uid = str(user.id)
     num = int(number)
-    if uid not in sanctions or not any(s["id"] == num for s in sanctions[uid]):
+    if uid not in sanctions_data or not any(s["id"] == num for s in sanctions_data[uid]):
         return await ctx.send("Sanction not found.")
-    deleted = next(s for s in sanctions[uid] if s["id"] == num)
-    sanctions[uid] = [s for s in sanctions[uid] if s["id"] != num]
-    for i, s in enumerate(sanctions[uid], 1):
+    deleted = next(s for s in sanctions_data[uid] if s["id"] == num)
+    sanctions_data[uid] = [s for s in sanctions_data[uid] if s["id"] != num]
+    for i, s in enumerate(sanctions_data[uid], 1):
         s["id"] = i
     save_sanctions()
     await ctx.send(f"Sanction deleted: {deleted['date']}: {deleted['reason']}")
@@ -543,7 +595,7 @@ async def clearwarns(ctx, target: str = None):
     user = await get_target(ctx, target)
     if not user:
         return await ctx.send("Usage: `+clearwarns @user` or reply")
-    sanctions[str(user.id)] = []
+    sanctions_data[str(user.id)] = []
     save_sanctions()
     await ctx.send(f"Cleared all sanctions for **{user}**")
     log = discord.Embed(title="Clear Warns", color=0x000000, timestamp=datetime.now())
@@ -612,6 +664,8 @@ async def tempmute(ctx, *, args: str = None):
         log.add_field(name="Duration", value=duration, inline=True)
         log.add_field(name="Reason", value=reason, inline=True)
         await send_log(log)
+    except discord.Forbidden:
+        await ctx.send("Missing permissions: move my role **above** the target's role and enable **Timeout Members** for me.")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
@@ -888,7 +942,7 @@ async def addrole(ctx, *, args: str = None):
         return await ctx.send(f"{member.mention} already has the {role.mention} role.")
     try:
         await member.add_roles(role)
-        await ctx.send(f"Role {role.mention} was added to {member.mention} successfully.")
+        await ctx.send("1 role was added to 1 member")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
@@ -941,7 +995,7 @@ async def delrole(ctx, *, args: str = None):
         return await ctx.send(f"{member.mention} does not have the {role.mention} role.")
     try:
         await member.remove_roles(role)
-        await ctx.send(f"Role {role.mention} was removed from {member.mention} successfully.")
+        await ctx.send("1 rôle was successfully removed from 1 member")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
