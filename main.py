@@ -16,8 +16,14 @@ SPECIAL_USERS = [
     "1517924890370375928",
 ]
 
-# Only this user can use +ban +unban +kick +bl +unbl (bot stays silent for everyone else)
+# +ban +unban +kick
 BAN_COMMAND_USERS = [
+    "1517924890370375928",
+    "1391635894045380619",
+]
+
+# +bl +unbl only
+BL_COMMAND_USERS = [
     "1517924890370375928",
 ]
 
@@ -313,13 +319,33 @@ async def on_message_delete(message):
     # Ignore the +clear command itself so it never gets sniped
     if message.content and message.content.startswith(f"{PREFIX}clear"):
         return
+    # Save text + image/attachments so +snipe can show them
+    attachments = []
+    image_url = None
+    for att in message.attachments:
+        attachments.append({"url": att.url, "filename": att.filename, "content_type": att.content_type or ""})
+        if image_url is None and (
+            (att.content_type and att.content_type.startswith("image/"))
+            or att.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+        ):
+            image_url = att.url
+    # Stickers (optional display as name)
+    stickers = [s.name for s in getattr(message, "stickers", [])] if getattr(message, "stickers", None) else []
+    content = message.content or ""
+    if not content and not attachments and not stickers:
+        content = "*no text*"
+    elif not content and attachments:
+        content = ""
     snipe_data[str(message.channel.id)] = {
-        "content": message.content or "*no text*",
+        "content": content if content else "*attachment only*",
         "author": str(message.author),
         "author_id": message.author.id,
         "avatar": str(message.author.display_avatar.url),
         "time": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "image_url": image_url,
+        "attachments": attachments,
+        "stickers": stickers,
     }
     save_snipe()
 
@@ -398,6 +424,65 @@ async def on_member_join(member):
             pass
 
 @bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    """Log manual (and any) timeouts into sanctions so +sanctions shows them."""
+    try:
+        before_to = before.timed_out_until
+        after_to = after.timed_out_until
+    except Exception:
+        return
+
+    # Timeout applied or extended
+    if after_to is not None and before_to != after_to:
+        # Skip if this bot just did +tempmute (already logged there)
+        mod_id = bot.user.id if bot.user else 0
+        reason = "timeout"
+        try:
+            async for entry in after.guild.audit_logs(limit=6, action=discord.AuditLogAction.member_update):
+                if entry.target and entry.target.id == after.id:
+                    # recent enough (within 20s)
+                    if (datetime.now(timezone.utc) - entry.created_at).total_seconds() < 20:
+                        if entry.user:
+                            mod_id = entry.user.id
+                        if entry.reason:
+                            reason = entry.reason
+                        break
+        except Exception:
+            pass
+
+        # If the bot applied it, +tempmute already added a sanction
+        if bot.user and mod_id == bot.user.id:
+            return
+
+        # Format remaining duration
+        try:
+            now = datetime.now(timezone.utc)
+            until = after_to if after_to.tzinfo else after_to.replace(tzinfo=timezone.utc)
+            secs = max(0, int((until - now).total_seconds()))
+            if secs >= 86400:
+                dur = f"{secs // 86400}d"
+            elif secs >= 3600:
+                dur = f"{secs // 3600}h"
+            elif secs >= 60:
+                dur = f"{secs // 60}m"
+            else:
+                dur = f"{secs}s"
+        except Exception:
+            dur = "?"
+
+        text = f"timeout {dur}"
+        if reason and reason != "timeout":
+            text = f"timeout {dur} - {reason}"
+        add_sanction(after.id, text, mod_id)
+
+        log = discord.Embed(title="Timeout (manual/other)", color=0x000000, timestamp=datetime.now())
+        log.add_field(name="User", value=f"{after} (`{after.id}`)", inline=False)
+        log.add_field(name="Moderator", value=f"<@{mod_id}> (`{mod_id}`)", inline=False)
+        log.add_field(name="Duration", value=dur, inline=True)
+        log.add_field(name="Reason", value=reason, inline=True)
+        await send_log(log)
+
+@bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
@@ -464,9 +549,13 @@ async def snipe(ctx):
     data = snipe_data.get(str(ctx.channel.id))
     if not data:
         return await empty_result(ctx, "Nothing to snipe.")
-    emb = discord.Embed(title="Snipe", description=data["content"], color=0x000000)
+    desc = data.get("content") or ""
+    if data.get("stickers"):
+        desc = (desc + "\n" if desc and desc != "*attachment only*" else "") + "Sticker: " + ", ".join(data["stickers"])
+    if not desc:
+        desc = "*attachment only*"
+    emb = discord.Embed(title="Snipe", description=desc, color=0x000000)
     emb.add_field(name="Author", value=data["author"], inline=True)
-    # Relative time if we have a timestamp
     deleted_text = data.get("time", "unknown")
     if data.get("timestamp"):
         try:
@@ -475,6 +564,19 @@ async def snipe(ctx):
         except:
             pass
     emb.add_field(name="Deleted", value=deleted_text, inline=True)
+    # Show deleted image in the embed
+    if data.get("image_url"):
+        emb.set_image(url=data["image_url"])
+    # Non-image attachments as links
+    other = []
+    for att in data.get("attachments") or []:
+        is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+        )
+        if not is_img and att.get("url"):
+            other.append(f"[{att.get('filename', 'file')}]({att['url']})")
+    if other:
+        emb.add_field(name="Files", value="\n".join(other[:5]), inline=False)
     emb.set_footer(text="Crow Bots")
     await ctx.send(embed=emb)
 
@@ -869,24 +971,41 @@ async def clear(ctx, *args):
         save_snipe()
 
 def find_role(guild, role_query: str):
-    """Find a role by exact name, ID, or case-insensitive name (including multi-word)."""
+    """Find a role by ID, mention, exact name, or partial name (e.g. 'manager' -> Manager)."""
     if not role_query:
         return None
     q = role_query.strip()
+    # Mention <@&id>
+    if q.startswith("<@&") and q.endswith(">"):
+        rid = q[3:-1]
+        if rid.isdigit():
+            return guild.get_role(int(rid))
     # By ID
     if q.isdigit():
         role = guild.get_role(int(q))
         if role:
             return role
-    # Exact / case-insensitive name
-    role = discord.utils.find(lambda r: r.name.lower() == q.lower(), guild.roles)
+    q_lower = q.lower()
+    # Exact name (case-insensitive)
+    role = discord.utils.find(lambda r: r.name.lower() == q_lower, guild.roles)
     if role:
         return role
-    # Mention style <@&id>
-    if q.startswith("<@&") and q.endswith(">"):
-        rid = q[3:-1]
-        if rid.isdigit():
-            return guild.get_role(int(rid))
+    # Starts with query (e.g. "head" -> "Head Staff")
+    starts = [r for r in guild.roles if r.name.lower().startswith(q_lower) and r.name != "@everyone"]
+    if len(starts) == 1:
+        return starts[0]
+    if len(starts) > 1:
+        # Prefer shortest name
+        starts.sort(key=lambda r: len(r.name))
+        return starts[0]
+    # Contains query (e.g. "manager" in "Server-Manager", "staff" in "Head Staff")
+    contains = [r for r in guild.roles if q_lower in r.name.lower() and r.name != "@everyone"]
+    if len(contains) == 1:
+        return contains[0]
+    if len(contains) > 1:
+        # Prefer shortest name so "mod" prefers "Moderator" over longer names when possible
+        contains.sort(key=lambda r: (len(r.name), r.name.lower()))
+        return contains[0]
     return None
 
 @bot.command()
@@ -1067,7 +1186,7 @@ async def rolemembers(ctx, *, role_query: str = None):
 
 @bot.command()
 async def bl(ctx, target: str = None, *, reason: str = "No reason"):
-    if str(ctx.author.id) not in BAN_COMMAND_USERS:
+    if str(ctx.author.id) not in BL_COMMAND_USERS:
         return
     user = await get_target(ctx, target)
     if not user:
@@ -1095,7 +1214,7 @@ async def bl(ctx, target: str = None, *, reason: str = "No reason"):
 
 @bot.command()
 async def unbl(ctx, user_id: str = None):
-    if str(ctx.author.id) not in BAN_COMMAND_USERS:
+    if str(ctx.author.id) not in BL_COMMAND_USERS:
         return
     if not user_id:
         return await ctx.send("Usage: `+unbl <user id>`")
