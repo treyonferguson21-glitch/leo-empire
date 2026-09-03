@@ -105,6 +105,7 @@ SANCTIONS_FILE = "data/sanctions.json"
 BLACKLIST_FILE = "data/blacklist.json"
 SNIPE_FILE = "data/snipe.json"
 ROLE_PERMS_FILE = "data/role_perms.json"  # saves role IDs so renames don't break perms
+TEMPROLES_FILE = "data/temproles.json"  # pending temporary roles
 
 def load_json(path, default):
     if os.path.exists(path):
@@ -121,11 +122,14 @@ blacklist = load_json(BLACKLIST_FILE, [])
 snipe_data = load_json(SNIPE_FILE, {})
 clearing_channels = set()  # channel ids currently being +clear'd — skip snipe updates
 role_perms = load_json(ROLE_PERMS_FILE, {})  # {guild_id: {"1": [role_id, ...], ...}}
+temproles_data = load_json(TEMPROLES_FILE, [])  # list of pending temp roles
+_temprole_tasks = {}  # key -> asyncio.Task
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
 def save_blacklist(): save_json(BLACKLIST_FILE, blacklist)
 def save_snipe(): save_json(SNIPE_FILE, snipe_data)
 def save_role_perms(): save_json(ROLE_PERMS_FILE, role_perms)
+def save_temproles(): save_json(TEMPROLES_FILE, temproles_data)
 
 # ==================== HELPERS ====================
 def _match_role_exact(guild: discord.Guild, name: str):
@@ -383,6 +387,105 @@ def parse_duration(text: str):
     if unit == "d": return timedelta(days=num)
     return None
 
+
+def _temprole_key(guild_id: int, user_id: int, role_id: int) -> str:
+    return f"{guild_id}:{user_id}:{role_id}"
+
+
+async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
+    """Remove a temporary role when time is up."""
+    key = _temprole_key(guild_id, user_id, role_id)
+    _temprole_tasks.pop(key, None)
+    # Drop from saved list
+    global temproles_data
+    temproles_data = [
+        e for e in temproles_data
+        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
+    ]
+    save_temproles()
+
+    guild = bot.get_guild(guild_id)
+    if not guild:
+        return
+    member = guild.get_member(user_id)
+    if not member:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            return
+    role = guild.get_role(role_id)
+    if not role:
+        return
+    if role not in member.roles:
+        return
+    try:
+        await member.remove_roles(role, reason="Temporary role expired")
+        log = discord.Embed(title="Temp Role Expired", color=0x000000, timestamp=datetime.now())
+        log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
+        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=False)
+        await send_log(log)
+    except Exception:
+        pass
+
+
+def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: datetime):
+    """Schedule role removal at ends_at (UTC). Replaces any existing timer for same role/user."""
+    import asyncio
+    key = _temprole_key(guild_id, user_id, role_id)
+    # Cancel old task
+    old = _temprole_tasks.pop(key, None)
+    if old and not old.done():
+        old.cancel()
+
+    now = datetime.now(timezone.utc)
+    if ends_at.tzinfo is None:
+        ends_at = ends_at.replace(tzinfo=timezone.utc)
+    delay = max(0, (ends_at - now).total_seconds())
+
+    async def _runner():
+        try:
+            await asyncio.sleep(delay)
+            await _remove_temprole(guild_id, user_id, role_id)
+        except asyncio.CancelledError:
+            return
+
+    _temprole_tasks[key] = asyncio.create_task(_runner())
+
+    # Upsert in saved list
+    global temproles_data
+    temproles_data = [
+        e for e in temproles_data
+        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
+    ]
+    temproles_data.append({
+        "guild_id": guild_id,
+        "user_id": user_id,
+        "role_id": role_id,
+        "ends_at": ends_at.isoformat(),
+    })
+    save_temproles()
+
+
+async def restore_temproles():
+    """On startup: remove expired roles and reschedule the rest."""
+    import asyncio
+    now = datetime.now(timezone.utc)
+    pending = list(temproles_data)
+    for entry in pending:
+        try:
+            gid = int(entry["guild_id"])
+            uid = int(entry["user_id"])
+            rid = int(entry["role_id"])
+            ends = datetime.fromisoformat(entry["ends_at"])
+            if ends.tzinfo is None:
+                ends = ends.replace(tzinfo=timezone.utc)
+            if ends <= now:
+                await _remove_temprole(gid, uid, rid)
+            else:
+                schedule_temprole(gid, uid, rid, ends)
+        except Exception as e:
+            print(f"temprole restore error: {e}")
+
 # ==================== EVENTS ====================
 @bot.event
 async def on_ready():
@@ -400,6 +503,11 @@ async def on_ready():
             print(f"Perm roles loaded for: {guild.name}")
         except Exception as e:
             print(f"Role resolve failed for {guild.name}: {e}")
+    try:
+        await restore_temproles()
+        print(f"Temp roles restored: {len(temproles_data)} pending")
+    except Exception as e:
+        print(f"Temp role restore failed: {e}")
 
 @bot.event
 async def on_message_delete(message):
@@ -1222,6 +1330,97 @@ def find_role(guild, role_query: str):
     return None
 
 @bot.command()
+async def temprole(ctx, *, args: str = None):
+    """
+    +temprole @user <duration> <role>
+    +temprole <duration> <role>   (reply to user)
+    Duration: 30s 10m 2h 7d 100d — any amount
+    """
+    if not has_perm(ctx.author, 5):
+        return
+    if not args:
+        return await ctx.send("invalid temprole")
+
+    user = None
+    duration = None
+    role_name = None
+
+    if ctx.message.mentions:
+        user = ctx.message.mentions[0]
+        rest = args
+        for m in ctx.message.mentions:
+            rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+        parts = rest.strip().split(None, 1)
+        if len(parts) >= 1:
+            duration = parts[0]
+        if len(parts) >= 2:
+            role_name = parts[1]
+    elif ctx.message.reference:
+        user = await get_target(ctx, None)
+        parts = args.strip().split(None, 1)
+        if len(parts) >= 1:
+            duration = parts[0]
+        if len(parts) >= 2:
+            role_name = parts[1]
+    else:
+        parts = args.split(None, 2)
+        # +temprole <user_id> <duration> <role...>
+        if len(parts) >= 3 and parts[0].isdigit():
+            user = await get_target(ctx, parts[0])
+            duration = parts[1]
+            role_name = parts[2]
+        elif len(parts) >= 2:
+            # +temprole <duration> <role> on self is allowed for testing? prefer invalid without user
+            # treat as user_id missing → invalid unless first is duration and they replied (handled above)
+            if parse_duration(parts[0]):
+                return await ctx.send("invalid temprole")
+            user = await get_target(ctx, parts[0])
+            duration = parts[1] if len(parts) > 1 else None
+            role_name = parts[2] if len(parts) > 2 else None
+        else:
+            return await ctx.send("invalid temprole")
+
+    if not user or not duration or not role_name:
+        return await ctx.send("invalid temprole")
+
+    delta = parse_duration(duration)
+    if not delta:
+        return await ctx.send("invalid temprole")
+    if delta.total_seconds() < 1:
+        return await ctx.send("invalid temprole")
+
+    member = await get_member(ctx.guild, user)
+    if not member:
+        return await ctx.send("invalid temprole")
+
+    role = find_role(ctx.guild, role_name)
+    if not role:
+        return await ctx.send("invalid temprole")
+    if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
+        return await ctx.send("invalid temprole")
+    if role >= ctx.guild.me.top_role:
+        return await ctx.send("invalid temprole")
+
+    try:
+        if role not in member.roles:
+            await member.add_roles(role, reason=f"Temp role {duration} by {ctx.author}")
+        ends_at = datetime.now(timezone.utc) + delta
+        schedule_temprole(ctx.guild.id, member.id, role.id, ends_at)
+        await ctx.send(
+            f"Gave {role.mention} to {member.mention} for **{duration}** "
+            f"(removes {discord.utils.format_dt(ends_at, 'R')})"
+        )
+        log = discord.Embed(title="Temp Role", color=0x000000, timestamp=datetime.now())
+        log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
+        log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=True)
+        log.add_field(name="Duration", value=duration, inline=True)
+        await send_log(log)
+    except Exception as e:
+        await ctx.send(f"Failed: {e}")
+
+
+@bot.command()
 async def addrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, 3):
         return
@@ -1533,7 +1732,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="Perm 5",
-        value="**Has access to all commands**",
+        value="**Has access to all commands** · `+temprole <member> <duration> <role>`",
         inline=False
     )
     emb.add_field(
