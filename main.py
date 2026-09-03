@@ -254,13 +254,11 @@ async def get_target(ctx: commands.Context, arg: str = None):
     # 3) Argument: ID or name
     if arg:
         arg = arg.strip()
-        # Raw ID
         if arg.isdigit():
             try:
                 return await bot.fetch_user(int(arg))
             except Exception:
                 pass
-        # Mention string <@id> / <@!id>
         if arg.startswith("<@") and arg.endswith(">"):
             raw = arg.replace("<@", "").replace("!", "").replace(">", "")
             if raw.isdigit():
@@ -268,40 +266,12 @@ async def get_target(ctx: commands.Context, arg: str = None):
                     return await bot.fetch_user(int(raw))
                 except Exception:
                     pass
-        # Name search in guild
         if ctx.guild:
             name = arg.lower()
-            # exact match first
             for m in ctx.guild.members:
-                if (
-                    m.name.lower() == name
-                    or (m.display_name and m.display_name.lower() == name)
-                    or str(m).lower() == name
-                ):
-                    return m
-            # partial match (starts with)
-            for m in ctx.guild.members:
-                if m.name.lower().startswith(name) or (m.display_name and m.display_name.lower().startswith(name)):
+                if m.name.lower() == name or (m.display_name and m.display_name.lower() == name) or str(m).lower() == name:
                     return m
     return None
-
-
-async def get_member(guild: discord.Guild, user):
-    """Get a Member from guild, trying cache then API fetch. Returns None if not in server."""
-    if user is None or guild is None:
-        return None
-    uid = getattr(user, "id", user)
-    try:
-        uid = int(uid)
-    except Exception:
-        return None
-    member = guild.get_member(uid)
-    if member:
-        return member
-    try:
-        return await guild.fetch_member(uid)
-    except Exception:
-        return None
 
 
 async def empty_result(ctx, text: str):
@@ -320,36 +290,6 @@ async def empty_result(ctx, text: str):
         except Exception:
             pass
 
-
-SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
-
-async def dm_unbanned(user):
-    """Try to DM a user that they were unbanned. May fail if no mutual server / DMs closed."""
-    if user is None or getattr(user, "bot", False):
-        return False
-    try:
-        emb = discord.Embed(
-            title="You have been unbanned",
-            description=(
-                "You have been **unbanned** from **Leo's empire**.\n\n"
-                f"You can rejoin here: {SERVER_INVITE}"
-            ),
-            color=0x000000,
-        )
-        emb.set_footer(text="Leo's empire")
-        await user.send(embed=emb)
-        return True
-    except Exception:
-        # Fallback plain text
-        try:
-            await user.send(
-                f"You have been unbanned from **Leo's empire**.\n"
-                f"Rejoin here: {SERVER_INVITE}"
-            )
-            return True
-        except Exception:
-            return False
-
 def parse_duration(text: str):
     match = re.match(r"^(\d+)([smhd])$", text.lower())
     if not match:
@@ -365,12 +305,10 @@ def parse_duration(text: str):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    # Streaming status = purple "LIVE" badge (premium look)
     await bot.change_presence(
-        status=discord.Status.online,
-        activity=discord.Streaming(
-            name="steal a brainrot",
-            url="https://www.twitch.tv/discord"
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="Leos empire"
         )
     )
     for guild in bot.guilds:
@@ -573,28 +511,17 @@ async def perms(ctx):
     emb = discord.Embed(title="Permissions", color=0x000000)
     for level in sorted(ROLES.keys()):
         mentions = []
-        seen = set()
-        # Show every configured role ID for this level
         for rid in cache.get(level, set()):
-            if rid in seen:
-                continue
-            seen.add(rid)
             role = ctx.guild.get_role(rid)
             if role:
                 mentions.append(role.mention)
-            else:
-                mentions.append(f"`{rid}`")
-        # Also try name fallback for any configured names not already shown
-        entry = ROLES.get(level, {})
-        names = entry.get("names", []) if isinstance(entry, dict) else []
-        for name in names:
-            role = discord.utils.find(
-                lambda r, n=name: r.name == n or r.name.lower() == n.lower(),
-                ctx.guild.roles
-            )
-            if role and role.id not in seen:
-                seen.add(role.id)
-                mentions.append(role.mention)
+        # fallback to configured names if IDs not resolved yet
+        if not mentions:
+            entry = ROLES.get(level, {})
+            names = entry.get("names", entry) if isinstance(entry, dict) else entry
+            for name in names:
+                role = discord.utils.find(lambda r, n=name: r.name == n or r.name.lower() == n.lower(), ctx.guild.roles)
+                mentions.append(role.mention if role else f"`{name}`")
         value = "\n".join(mentions) if mentions else "None found"
         if level == 5:
             value += "\n\n**Has access to all commands**"
@@ -822,7 +749,7 @@ async def tempmute(ctx, *, args: str = None):
     if not user or not duration:
         return await ctx.send("Usage: `+tempmute @user <duration> [reason]` or reply + `<duration> [reason]`")
 
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
     if member.id == ctx.author.id:
@@ -857,7 +784,7 @@ async def unmute(ctx, target: str = None):
     user = await get_target(ctx, target)
     if not user:
         return await ctx.send("Usage: `+unmute @user` or reply")
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
     try:
@@ -962,13 +889,10 @@ async def unban(ctx, user_id: str = None):
     try:
         user = await bot.fetch_user(int(user_id))
         await ctx.guild.unban(user)
-        dm_ok = await dm_unbanned(user)
-        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
-        await ctx.send(f"Unbanned **{user}**{extra}")
+        await ctx.send(f"Unbanned **{user}**")
         log = discord.Embed(title="Unban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
-        log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed to unban: {e}")
@@ -1002,7 +926,7 @@ async def kick(ctx, *, args: str = None):
         return await ctx.send("Usage: `+kick @user [reason]` or reply + reason")
     if user.id == ctx.author.id:
         return await ctx.send("You can't kick yourself.")
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
     try:
@@ -1083,16 +1007,24 @@ async def clear(ctx, *args):
             return True
         return m.author.id == target.id
 
-    # Silent + instant: delete the command message with the purge, no reply
-    try:
-        await ctx.channel.purge(limit=amount, check=check)
-    except Exception:
-        pass
-
     try:
         await ctx.message.delete()
     except Exception:
         pass
+
+    try:
+        deleted = await ctx.channel.purge(limit=amount, check=check)
+        if target and deleted:
+            try:
+                feedback = await ctx.send(f"Cleared **{len(deleted)}** message(s) from **{target}**.")
+                await feedback.delete(delay=3)
+            except Exception:
+                pass
+    except Exception as e:
+        try:
+            await ctx.send(f"Failed to clear: `{e}`")
+        except Exception:
+            pass
 
     # Don't let +clear messages be sniped
     channel_id = str(ctx.channel.id)
@@ -1176,7 +1108,7 @@ async def addrole(ctx, *, args: str = None):
     if not user or not role_name:
         return await ctx.send("Usage: `+addrole @user RoleName` or reply + `RoleName`")
 
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
 
@@ -1229,7 +1161,7 @@ async def delrole(ctx, *, args: str = None):
     if not user or not role_name:
         return await ctx.send("Usage: `+delrole @user RoleName` or reply + `RoleName`")
 
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
 
@@ -1257,7 +1189,7 @@ async def derank(ctx, target: str = None):
         return await ctx.send("Usage: `+derank @user` or reply")
     if user.id == ctx.author.id:
         return await ctx.send("You can't derank yourself.")
-    member = await get_member(ctx.guild, user)
+    member = ctx.guild.get_member(user.id)
     if not member:
         return await ctx.send("User not in server.")
     try:
@@ -1352,22 +1284,11 @@ async def unbl(ctx, user_id: str = None):
     if uid in blacklist:
         blacklist.remove(uid)
         save_blacklist()
-    user = None
     try:
         user = await bot.fetch_user(int(uid))
-        try:
-            await ctx.guild.unban(user)
-        except Exception:
-            pass
-        dm_ok = await dm_unbanned(user)
-        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
-        await ctx.send(f"Removed `{uid}` from blacklist and unbanned.{extra}")
-        log = discord.Embed(title="Unblacklist", color=0x000000, timestamp=datetime.now())
-        log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
-        log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
-        log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
-        await send_log(log)
-    except Exception:
+        await ctx.guild.unban(user)
+        await ctx.send(f"Removed `{uid}` from blacklist and unbanned.")
+    except:
         await ctx.send(f"Removed `{uid}` from blacklist.")
 
 @bot.command()
@@ -1402,7 +1323,8 @@ async def help(ctx):
         description=(
             "Prefix: `+`\n"
             "You can **reply** to a message instead of mentioning the user.\n\n"
-            "**Bot maker:** teix · **Founder:** LEO"
+            "*This is **not** the official Steal A Lunar bot.*\n"
+            "**Founder:** Wisty"
         )
     )
     emb.add_field(
@@ -1432,7 +1354,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="Special Users only",
-        value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
+        value="`+ban` `+unban` (some users) · `+kick` · `+bl` `+unbl` (user ID only)",
         inline=False
     )
     emb.add_field(
@@ -1440,7 +1362,7 @@ async def help(ctx):
         value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
         inline=False
     )
-    emb.set_footer(text="Bot maker: teix • Founder: LEO")
+    emb.set_footer(text="Founder: Wisty • Not the official Steal A Lunar bot")
     await ctx.send(embed=emb)
 
 # ==================== KEEP-ALIVE (for hosts that sleep) ====================
