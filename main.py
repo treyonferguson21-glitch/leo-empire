@@ -12,15 +12,12 @@ TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
 
-# Welcome message
+# Welcome system
 WELCOME_CHANNEL_ID = 1512494871644995740
-WELCOME_CHANNELS = [
-    # (emoji, label, channel_id)
-    ("💬", "Chat", 1512494872203100276),
-    ("📜", "Rules", 1512494871644995743),
-    ("📢", "Announcements", 1520525418858418236),
-    ("🔗", "Invite tracker", 1520524185854804109),
-]
+WELCOME_CHAT_ID = 1512494872203100276
+WELCOME_RULES_ID = 1512494871644995743
+WELCOME_ANNOUNCEMENTS_ID = 1520525418858418236
+WELCOME_INVITE_TRACKER_ID = 1520524185854804109
 
 SPECIAL_USERS = [
     "1517924890370375928",
@@ -664,26 +661,19 @@ async def on_member_join(member):
 
     # Welcome message
     try:
-        channel = bot.get_channel(WELCOME_CHANNEL_ID)
-        if channel is None:
-            try:
-                channel = await bot.fetch_channel(WELCOME_CHANNEL_ID)
-            except Exception:
-                channel = None
-        if channel is not None:
-            lines = [
-                f"Welcome to {member.mention} in **{member.guild.name}** !",
-                "",
-            ]
-            for emoji, label, cid in WELCOME_CHANNELS:
-                lines.append(f"> {emoji} <#{cid}>")
-            lines.append("")
-            count = member.guild.member_count or len(member.guild.members)
-            lines.append(f"We are now **{count}** members in the server!")
-            await channel.send(
-                "\n".join(lines),
-                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
-            )
+        ch = bot.get_channel(WELCOME_CHANNEL_ID)
+        if ch is None:
+            ch = await bot.fetch_channel(WELCOME_CHANNEL_ID)
+        count = member.guild.member_count or len(member.guild.members)
+        text = (
+            f"Welcome to {member.mention} in **{member.guild.name}** !\n\n"
+            f"> 💬 <#{WELCOME_CHAT_ID}>\n"
+            f"> 📜 <#{WELCOME_RULES_ID}>\n"
+            f"> 📢 <#{WELCOME_ANNOUNCEMENTS_ID}>\n"
+            f"> 🔗 <#{WELCOME_INVITE_TRACKER_ID}>\n\n"
+            f"**We are now {count} members in the server!**"
+        )
+        await ch.send(text)
     except Exception as e:
         print(f"Welcome message failed: {e}")
 
@@ -1368,61 +1358,72 @@ def find_role(guild, role_query: str):
 @bot.command()
 async def temprole(ctx, *, args: str = None):
     """
-    +temprole @user <duration> <role>
-    +temprole <duration> <role>   (reply to user)
-    Duration: 30s 10m 2h 7d 100d — any amount
+    +temprole @user 30s Role Name
+    +temprole @user Role Name 30s
+    +temprole 30s Role Name          (yourself)
+    +temprole Role Name 30s          (yourself)
+    +temprole 30s Role Name          (reply = target)
+    Duration: any amount (30s 10m 2h 7d 100d ...)
     """
     if not has_perm(ctx.author, 5):
         return
     if not args:
         return await ctx.send("invalid temprole")
 
+    # Strip mentions from the text used for duration/role parsing
+    rest = args
     user = None
-    duration = None
-    role_name = None
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
-        rest = args
         for m in ctx.message.mentions:
             rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
-        parts = rest.strip().split(None, 1)
-        if len(parts) >= 1:
-            duration = parts[0]
-        if len(parts) >= 2:
-            role_name = parts[1]
-    elif ctx.message.reference:
-        user = await get_target(ctx, None)
-        parts = args.strip().split(None, 1)
-        if len(parts) >= 1:
-            duration = parts[0]
-        if len(parts) >= 2:
-            role_name = parts[1]
-    else:
-        parts = args.split(None, 2)
-        # +temprole <user_id> <duration> <role...>
-        if len(parts) >= 3 and parts[0].isdigit():
-            user = await get_target(ctx, parts[0])
-            duration = parts[1]
-            role_name = parts[2]
-        elif len(parts) >= 2:
-            # +temprole <duration> <role> on self is allowed for testing? prefer invalid without user
-            # treat as user_id missing → invalid unless first is duration and they replied (handled above)
-            if parse_duration(parts[0]):
-                return await ctx.send("invalid temprole")
-            user = await get_target(ctx, parts[0])
-            duration = parts[1] if len(parts) > 1 else None
-            role_name = parts[2] if len(parts) > 2 else None
-        else:
-            return await ctx.send("invalid temprole")
+    # Reply to a message → target that message's author
+    if user is None and ctx.message.reference:
+        ref = ctx.message.reference
+        if ref.resolved and hasattr(ref.resolved, "author"):
+            user = ref.resolved.author
+        elif ref.message_id:
+            try:
+                ref_msg = await ctx.channel.fetch_message(ref.message_id)
+                user = ref_msg.author
+            except Exception:
+                user = await get_target(ctx, None)
 
-    if not user or not duration or not role_name:
+    tokens = rest.strip().split()
+    if not tokens:
         return await ctx.send("invalid temprole")
+
+    # Optional leading user ID (only if no mention/reply yet)
+    if user is None and tokens[0].isdigit() and len(tokens[0]) >= 15:
+        user = await get_target(ctx, tokens[0])
+        tokens = tokens[1:]
+
+    if not tokens:
+        return await ctx.send("invalid temprole")
+
+    # Find duration token (30s / 10m / 2h / 7d) — can be first or last
+    duration = None
+    duration_idx = None
+    for i, tok in enumerate(tokens):
+        if parse_duration(tok):
+            duration = tok
+            duration_idx = i
+            break
+
+    if duration is None:
+        return await ctx.send("invalid temprole")
+
+    role_tokens = tokens[:duration_idx] + tokens[duration_idx + 1:]
+    role_name = " ".join(role_tokens).strip()
+    if not role_name:
+        return await ctx.send("invalid temprole")
+
+    # No user mentioned/replied → apply to yourself
+    if user is None:
+        user = ctx.author
 
     delta = parse_duration(duration)
-    if not delta:
-        return await ctx.send("invalid temprole")
-    if delta.total_seconds() < 1:
+    if not delta or delta.total_seconds() < 1:
         return await ctx.send("invalid temprole")
 
     member = await get_member(ctx.guild, user)
@@ -1442,9 +1443,9 @@ async def temprole(ctx, *, args: str = None):
             await member.add_roles(role, reason=f"Temp role {duration} by {ctx.author}")
         ends_at = datetime.now(timezone.utc) + delta
         schedule_temprole(ctx.guild.id, member.id, role.id, ends_at)
-        # role.mention is shown but does NOT ping (roles=False)
+        # Role name only — does not ping the role
         await ctx.send(
-            f"Gave {role.mention} to {member.mention} for **{duration}** "
+            f"Gave **{role.name}** to {member.mention} for **{duration}** "
             f"(removes {discord.utils.format_dt(ends_at, 'R')})",
             allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
         )
