@@ -12,6 +12,16 @@ TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
 
+# Welcome message
+WELCOME_CHANNEL_ID = 1512494871644995740
+WELCOME_CHANNELS = [
+    # (emoji, label, channel_id)
+    ("💬", "Chat", 1512494872203100276),
+    ("📜", "Rules", 1512494871644995743),
+    ("📢", "Announcements", 1520525418858418236),
+    ("🔗", "Invite tracker", 1520524185854804109),
+]
+
 SPECIAL_USERS = [
     "1517924890370375928",
 ]
@@ -648,8 +658,34 @@ async def on_member_join(member):
     if str(member.id) in blacklist:
         try:
             await member.ban(reason="Blacklisted")
-        except:
+        except Exception:
             pass
+        return
+
+    # Welcome message
+    try:
+        channel = bot.get_channel(WELCOME_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(WELCOME_CHANNEL_ID)
+            except Exception:
+                channel = None
+        if channel is not None:
+            lines = [
+                f"Welcome to {member.mention} in **{member.guild.name}** !",
+                "",
+            ]
+            for emoji, label, cid in WELCOME_CHANNELS:
+                lines.append(f"> {emoji} <#{cid}>")
+            lines.append("")
+            count = member.guild.member_count or len(member.guild.members)
+            lines.append(f"We are now **{count}** members in the server!")
+            await channel.send(
+                "\n".join(lines),
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            )
+    except Exception as e:
+        print(f"Welcome message failed: {e}")
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
@@ -1406,9 +1442,11 @@ async def temprole(ctx, *, args: str = None):
             await member.add_roles(role, reason=f"Temp role {duration} by {ctx.author}")
         ends_at = datetime.now(timezone.utc) + delta
         schedule_temprole(ctx.guild.id, member.id, role.id, ends_at)
+        # role.mention is shown but does NOT ping (roles=False)
         await ctx.send(
             f"Gave {role.mention} to {member.mention} for **{duration}** "
-            f"(removes {discord.utils.format_dt(ends_at, 'R')})"
+            f"(removes {discord.utils.format_dt(ends_at, 'R')})",
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
         )
         log = discord.Embed(title="Temp Role", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
