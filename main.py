@@ -387,11 +387,10 @@ def parse_duration(text: str):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    # Streaming status = purple "LIVE" badge (premium look)
     await bot.change_presence(
         status=discord.Status.online,
         activity=discord.Streaming(
-            name="steal a brainrot",
+            name="LEOS EMPIRE",
             url="https://www.twitch.tv/discord"
         )
     )
@@ -448,6 +447,67 @@ async def on_bulk_message_delete(messages):
     # Keep the last normally-deleted message so +snipe still works after a clear.
     return
 
+async def filter_bad_content(message) -> bool:
+    """
+    Delete message if it has scam/blacklist words.
+    Warns the user, logs, adds sanction, and deletes the warn after 3 seconds.
+    Returns True if the message was filtered (caller should stop processing).
+    """
+    if not message.guild or message.author.bot:
+        return False
+    content = message.content or ""
+    if not content:
+        return False
+    content_lower = content.lower()
+    member = message.guild.get_member(message.author.id)
+    if member and has_perm(member, 5):
+        return False
+
+    async def _warn_and_cleanup(text: str):
+        try:
+            warn_msg = await message.channel.send(text)
+        except Exception:
+            return
+        try:
+            await warn_msg.delete(delay=3)
+        except Exception:
+            pass
+
+    # Scam / nitro bait
+    for word in SCAM_WORDS:
+        if word in content_lower:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            add_sanction(message.author.id, "link", bot.user.id if bot.user else 0)
+            await _warn_and_cleanup(f"{message.author.mention} this a some bad things you got going")
+            emb = discord.Embed(title="Scam / Link Filter", color=0x000000, timestamp=datetime.now())
+            emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
+            emb.add_field(name="Matched", value=word)
+            emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            await send_log(emb)
+            return True
+
+    # Normal blacklisted words
+    for word in BLACKLISTED_WORDS:
+        if word in content_lower:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            add_sanction(message.author.id, "bad word", bot.user.id if bot.user else 0)
+            await _warn_and_cleanup(f"{message.author.mention} you said a blacklisted word")
+            emb = discord.Embed(title="Blacklisted Word", color=0x000000, timestamp=datetime.now())
+            emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
+            emb.add_field(name="Word", value=word)
+            emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            await send_log(emb)
+            return True
+
+    return False
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -460,49 +520,20 @@ async def on_message(message):
             await message.channel.send(f"My prefix on this server is: `{PREFIX}`")
             return
 
-    # Filter words — only Perm 5 can say blacklisted words
-    content_lower = message.content.lower()
-    member = message.guild.get_member(message.author.id) if message.guild else None
-    immune = member and has_perm(member, 5)
-
-    if not immune:
-        # Scam / nitro bait → delete, ping, sanction as "link"
-        for word in SCAM_WORDS:
-            if word in content_lower:
-                try:
-                    await message.delete()
-                except:
-                    pass
-                add_sanction(message.author.id, "link", bot.user.id)
-                await message.channel.send(
-                    f"{message.author.mention} this a some bad things you got going"
-                )
-                emb = discord.Embed(title="Scam / Link Filter", color=0x000000, timestamp=datetime.now())
-                emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
-                emb.add_field(name="Matched", value=word)
-                emb.add_field(name="Message", value=f"```{message.content[:800]}```", inline=False)
-                await send_log(emb)
-                return
-
-        # Normal blacklisted words → delete, ping, sanction as "bad word"
-        for word in BLACKLISTED_WORDS:
-            if word in content_lower:
-                try:
-                    await message.delete()
-                except:
-                    pass
-                add_sanction(message.author.id, "bad word", bot.user.id)
-                await message.channel.send(
-                    f"{message.author.mention} you said a blacklisted word"
-                )
-                emb = discord.Embed(title="Blacklisted Word", color=0x000000, timestamp=datetime.now())
-                emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
-                emb.add_field(name="Word", value=word)
-                emb.add_field(name="Message", value=f"```{message.content[:800]}```", inline=False)
-                await send_log(emb)
-                return
+    if await filter_bad_content(message):
+        return
 
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_message_edit(before, after):
+    """If someone edits a message to include a blacklisted word, still filter it."""
+    if after.author.bot or not after.guild:
+        return
+    if (before.content or "") == (after.content or ""):
+        return
+    await filter_bad_content(after)
 
 @bot.event
 async def on_member_join(member):
@@ -744,7 +775,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
     uid = str(user.id)
     num = int(number)
     if uid not in sanctions_data or not any(s["id"] == num for s in sanctions_data[uid]):
-        return await ctx.send("Sanction not found.")
+        return await ctx.send("invalid del")
     deleted = next(s for s in sanctions_data[uid] if s["id"] == num)
     sanctions_data[uid] = [s for s in sanctions_data[uid] if s["id"] != num]
     for i, s in enumerate(sanctions_data[uid], 1):
@@ -851,9 +882,9 @@ async def tempmute(ctx, *, args: str = None):
 
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid tempmute")
     if member.id == ctx.author.id:
-        return await ctx.send("You can't mute yourself.")
+        return await ctx.send("invalid tempmute")
 
     delta = parse_duration(duration)
     if not delta:
@@ -886,7 +917,7 @@ async def unmute(ctx, target: str = None):
         return await ctx.send("invalid unmute")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid unmute")
     try:
         await member.timeout(None)
         await ctx.send(f"Unmuted {member.mention} successfully")
@@ -972,7 +1003,7 @@ async def ban(ctx, *, args: str = None):
     if not user:
         return await ctx.send("invalid ban")
     if user.id == ctx.author.id:
-        return await ctx.send("You can't ban yourself.")
+        return await ctx.send("invalid ban")
     try:
         await ctx.guild.ban(user, reason=reason)
         if reason and reason != "No reason":
@@ -1036,10 +1067,10 @@ async def kick(ctx, *, args: str = None):
     if not user:
         return await ctx.send("invalid kick")
     if user.id == ctx.author.id:
-        return await ctx.send("You can't kick yourself.")
+        return await ctx.send("invalid kick")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid kick")
     try:
         await member.kick(reason=reason)
         if reason and reason != "No reason":
@@ -1118,28 +1149,39 @@ async def clear(ctx, *args):
         amount = max(1, min(amount, 100))
 
     def check(m):
-        # Always allow deleting the command message itself
+        # Always delete the +clear command message itself
         if m.id == ctx.message.id:
             return True
         if target is None:
             return True
         return m.author.id == target.id
 
-    # Silent + instant. Purge messages BEFORE the command so the count is exact,
-    # then always delete the +clear command message too.
+    # Silent, no bot-log, no confirmation. One bulk delete including the +clear message.
     clearing_channels.add(ctx.channel.id)
     try:
-        await ctx.channel.purge(limit=amount, check=check, before=ctx.message)
+        if target is None:
+            # Fast path: delete last N messages + the command in a single purge
+            await ctx.channel.purge(limit=amount + 1, check=check)
+        else:
+            # User-targeted: scan recent history and remove only their msgs (+ command)
+            left = amount
+            while left > 0:
+                batch = min(100, left + 1)
+                purged = await ctx.channel.purge(limit=batch, check=check)
+                # Count only target messages toward the limit (command doesn't count)
+                removed = sum(1 for m in purged if m.id != ctx.message.id)
+                left -= max(removed, 1)
+                if len(purged) < batch:
+                    break
     except Exception:
-        pass
+        # Fallback: still try to remove the command message
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
     finally:
         clearing_channels.discard(ctx.channel.id)
-
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-    # Do not touch snipe_data — leave the previous deleted message available for +snipe
+    # No log, no reply — stays out of channel and bot log channel
 
 def find_role(guild, role_query: str):
     """Find a role by ID, mention, exact name, or partial name (e.g. 'manager' -> Manager)."""
@@ -1219,15 +1261,15 @@ async def addrole(ctx, *, args: str = None):
 
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid addrole")
 
     role = find_role(ctx.guild, role_name)
     if not role:
-        return await ctx.send("Role not found.")
+        return await ctx.send("invalid addrole")
     if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        return await ctx.send("You can't give a role that is higher or equal to your highest role.")
+        return await ctx.send("invalid addrole")
     if role >= ctx.guild.me.top_role:
-        return await ctx.send("I can't assign that role because it is higher or equal to my highest role.")
+        return await ctx.send("invalid addrole")
     if role in member.roles:
         return await ctx.send(f"{member.mention} already has the {role.mention} role.")
     try:
@@ -1272,15 +1314,15 @@ async def delrole(ctx, *, args: str = None):
 
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid delrole")
 
     role = find_role(ctx.guild, role_name)
     if not role:
-        return await ctx.send("Role not found.")
+        return await ctx.send("invalid delrole")
     if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        return await ctx.send("You can't remove a role that is higher or equal to your highest role.")
+        return await ctx.send("invalid delrole")
     if role >= ctx.guild.me.top_role:
-        return await ctx.send("I can't remove that role because it is higher or equal to my highest role.")
+        return await ctx.send("invalid delrole")
     if role not in member.roles:
         return await ctx.send(f"{member.mention} does not have the {role.mention} role.")
     try:
@@ -1297,10 +1339,10 @@ async def derank(ctx, target: str = None):
     if not user:
         return await ctx.send("invalid derank")
     if user.id == ctx.author.id:
-        return await ctx.send("You can't derank yourself.")
+        return await ctx.send("invalid derank")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await ctx.send("User not in server.")
+        return await ctx.send("invalid derank")
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
         await member.remove_roles(*roles)
@@ -1341,7 +1383,7 @@ async def rolemembers(ctx, *, role_query: str = None):
         ctx.guild.roles
     )
     if not role:
-        return await ctx.send("Role not found.")
+        return await ctx.send("invalid rolemembers")
     members = role.members
     if not members:
         return await ctx.send(f"No members have the role **{role.name}**.")
@@ -1384,7 +1426,7 @@ async def bl(ctx, *, args: str = None):
     if not user:
         return await ctx.send("invalid bl")
     if user.id == ctx.author.id:
-        return await ctx.send("You can't blacklist yourself.")
+        return await ctx.send("invalid bl")
     uid = str(user.id)
     if uid not in blacklist:
         blacklist.append(uid)
