@@ -81,6 +81,8 @@ BLACKLISTED_WORDS = [
     # self-harm / threats
     "kys", "kill yourself", "kill urself", "hang yourself", "go die",
     "neck yourself", "end yourself",
+    # other
+    "server",
 ]
 
 # Scam / nitro bait — separate message + sanction reason "link"
@@ -117,6 +119,7 @@ def save_json(path, data):
 sanctions_data = load_json(SANCTIONS_FILE, {})
 blacklist = load_json(BLACKLIST_FILE, [])
 snipe_data = load_json(SNIPE_FILE, {})
+clearing_channels = set()  # channel ids currently being +clear'd — skip snipe updates
 role_perms = load_json(ROLE_PERMS_FILE, {})  # {guild_id: {"1": [role_id, ...], ...}}
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
@@ -254,11 +257,13 @@ async def get_target(ctx: commands.Context, arg: str = None):
     # 3) Argument: ID or name
     if arg:
         arg = arg.strip()
+        # Raw ID
         if arg.isdigit():
             try:
                 return await bot.fetch_user(int(arg))
             except Exception:
                 pass
+        # Mention string <@id> / <@!id>
         if arg.startswith("<@") and arg.endswith(">"):
             raw = arg.replace("<@", "").replace("!", "").replace(">", "")
             if raw.isdigit():
@@ -266,12 +271,40 @@ async def get_target(ctx: commands.Context, arg: str = None):
                     return await bot.fetch_user(int(raw))
                 except Exception:
                     pass
+        # Name search in guild
         if ctx.guild:
             name = arg.lower()
+            # exact match first
             for m in ctx.guild.members:
-                if m.name.lower() == name or (m.display_name and m.display_name.lower() == name) or str(m).lower() == name:
+                if (
+                    m.name.lower() == name
+                    or (m.display_name and m.display_name.lower() == name)
+                    or str(m).lower() == name
+                ):
+                    return m
+            # partial match (starts with)
+            for m in ctx.guild.members:
+                if m.name.lower().startswith(name) or (m.display_name and m.display_name.lower().startswith(name)):
                     return m
     return None
+
+
+async def get_member(guild: discord.Guild, user):
+    """Get a Member from guild, trying cache then API fetch. Returns None if not in server."""
+    if user is None or guild is None:
+        return None
+    uid = getattr(user, "id", user)
+    try:
+        uid = int(uid)
+    except Exception:
+        return None
+    member = guild.get_member(uid)
+    if member:
+        return member
+    try:
+        return await guild.fetch_member(uid)
+    except Exception:
+        return None
 
 
 async def empty_result(ctx, text: str):
@@ -290,6 +323,55 @@ async def empty_result(ctx, text: str):
         except Exception:
             pass
 
+
+SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
+
+async def dm_unbanned(user):
+    """Try to DM a user that they were unbanned. May fail if no mutual server / DMs closed."""
+    if user is None or getattr(user, "bot", False):
+        return False
+    try:
+        emb = discord.Embed(
+            title="You have been unbanned",
+            description=(
+                "You have been **unbanned** from **Leo's empire**.\n\n"
+                f"You can rejoin here: {SERVER_INVITE}"
+            ),
+            color=0x000000,
+        )
+        emb.set_footer(text="Leo's empire")
+        await user.send(embed=emb)
+        return True
+    except Exception:
+        # Fallback plain text
+        try:
+            await user.send(
+                f"You have been unbanned from **Leo's empire**.\n"
+                f"Rejoin here: {SERVER_INVITE}"
+            )
+            return True
+        except Exception:
+            return False
+
+
+def censor_blacklisted(text: str) -> str:
+    """Replace blacklisted words with blurred/censored versions for +snipe display."""
+    if not text:
+        return text
+    out = text
+    words = sorted(BLACKLISTED_WORDS, key=len, reverse=True)
+    for word in words:
+        if not word:
+            continue
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        def _blur(m, _w=word):
+            w = m.group(0)
+            if len(w) <= 2:
+                return "*" * len(w)
+            return w[0] + ("•" * (len(w) - 2)) + w[-1]
+        out = pattern.sub(_blur, out)
+    return out
+
 def parse_duration(text: str):
     match = re.match(r"^(\d+)([smhd])$", text.lower())
     if not match:
@@ -305,10 +387,12 @@ def parse_duration(text: str):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    # Streaming status = purple "LIVE" badge (premium look)
     await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="Leos empire"
+        status=discord.Status.online,
+        activity=discord.Streaming(
+            name="steal a brainrot",
+            url="https://www.twitch.tv/discord"
         )
     )
     for guild in bot.guilds:
@@ -321,6 +405,9 @@ async def on_ready():
 @bot.event
 async def on_message_delete(message):
     if message.author.bot or not message.guild:
+        return
+    # Ignore deletes caused by +clear (bulk or single)
+    if message.channel.id in clearing_channels:
         return
     # Ignore the +clear command itself so it never gets sniped
     if message.content and message.content.startswith(f"{PREFIX}clear"):
@@ -357,13 +444,9 @@ async def on_message_delete(message):
 
 @bot.event
 async def on_bulk_message_delete(messages):
-    # Bulk deletes (from +clear / purge) should not update snipe
-    if not messages:
-        return
-    channel_id = str(messages[0].channel.id)
-    if channel_id in snipe_data:
-        del snipe_data[channel_id]
-        save_snipe()
+    # Bulk deletes from +clear/purge must NOT change snipe.
+    # Keep the last normally-deleted message so +snipe still works after a clear.
+    return
 
 @bot.event
 async def on_message(message):
@@ -377,10 +460,10 @@ async def on_message(message):
             await message.channel.send(f"My prefix on this server is: `{PREFIX}`")
             return
 
-    # Filter words (Perm 5 + Special Users are immune)
+    # Filter words — only Perm 5 can say blacklisted words
     content_lower = message.content.lower()
     member = message.guild.get_member(message.author.id) if message.guild else None
-    immune = member and (has_perm(member, 5) or str(member.id) in SPECIAL_USERS)
+    immune = member and has_perm(member, 5)
 
     if not immune:
         # Scam / nitro bait → delete, ping, sanction as "link"
@@ -493,12 +576,17 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("Missing permissions.")
-    else:
+        return
+    # Bad args / missing required args → "invalid <command>"
+    if isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument, commands.TooManyArguments, commands.UserInputError)):
+        name = ctx.command.name if ctx.command else "command"
         try:
-            await ctx.send(f"Error: `{error}`")
-        except:
+            await ctx.send(f"invalid {name}")
+        except Exception:
             pass
+        return
+    # Silent for other errors (no spam)
+    return
 
 # ==================== COMMANDS ====================
 @bot.command()
@@ -511,17 +599,27 @@ async def perms(ctx):
     emb = discord.Embed(title="Permissions", color=0x000000)
     for level in sorted(ROLES.keys()):
         mentions = []
+        seen = set()
+        # Only show roles that still exist in the server
         for rid in cache.get(level, set()):
+            if rid in seen:
+                continue
             role = ctx.guild.get_role(rid)
-            if role:
+            if not role:
+                continue  # deleted role — skip
+            seen.add(rid)
+            mentions.append(role.mention)
+        # Also try name fallback for any configured names not already shown
+        entry = ROLES.get(level, {})
+        names = entry.get("names", []) if isinstance(entry, dict) else []
+        for name in names:
+            role = discord.utils.find(
+                lambda r, n=name: r.name == n or r.name.lower() == n.lower(),
+                ctx.guild.roles
+            )
+            if role and role.id not in seen:
+                seen.add(role.id)
                 mentions.append(role.mention)
-        # fallback to configured names if IDs not resolved yet
-        if not mentions:
-            entry = ROLES.get(level, {})
-            names = entry.get("names", entry) if isinstance(entry, dict) else entry
-            for name in names:
-                role = discord.utils.find(lambda r, n=name: r.name == n or r.name.lower() == n.lower(), ctx.guild.roles)
-                mentions.append(role.mention if role else f"`{name}`")
         value = "\n".join(mentions) if mentions else "None found"
         if level == 5:
             value += "\n\n**Has access to all commands**"
@@ -540,7 +638,8 @@ async def syncroles(ctx):
         roles = []
         for rid in cache[level]:
             role = ctx.guild.get_role(rid)
-            roles.append(role.mention if role else f"`{rid}`")
+            if role:
+                roles.append(role.mention)
         lines.append(f"**Perm {level}:** {' '.join(roles) if roles else 'none'}")
     emb = discord.Embed(
         title="Roles synced",
@@ -552,10 +651,11 @@ async def syncroles(ctx):
 
 @bot.command()
 async def snipe(ctx):
+    # Available to everyone (no staff perm required)
     data = snipe_data.get(str(ctx.channel.id))
     if not data:
         return await empty_result(ctx, "Nothing to snipe.")
-    desc = data.get("content") or ""
+    desc = censor_blacklisted(data.get("content") or "")
     if data.get("stickers"):
         desc = (desc + "\n" if desc and desc != "*attachment only*" else "") + "Sticker: " + ", ".join(data["stickers"])
     if not desc:
@@ -639,7 +739,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
         number = arg2
 
     if not user or not number or not str(number).isdigit():
-        return await ctx.send("Usage: `+del sanction @user <number>` or reply + `+del sanction <number>`")
+        return await ctx.send("invalid del")
 
     uid = str(user.id)
     num = int(number)
@@ -682,10 +782,10 @@ async def warn(ctx, *, args: str = None):
         if user and len(parts) > 1:
             reason = parts[1]
         elif not user:
-            return await ctx.send("Usage: `+warn @user [reason]` or reply + reason")
+            return await ctx.send("invalid warn")
 
     if not user:
-        return await ctx.send("Usage: `+warn @user [reason]` or reply + reason")
+        return await ctx.send("invalid warn")
 
     add_sanction(user.id, reason, ctx.author.id)
     emb = discord.Embed(title="warn", description=f"{user.mention} was warned\nreason: {reason}", color=0x000000)
@@ -702,7 +802,7 @@ async def clearwarns(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await ctx.send("Usage: `+clearwarns @user` or reply")
+        return await ctx.send("invalid clearwarns")
     sanctions_data[str(user.id)] = []
     save_sanctions()
     await ctx.send(f"Cleared all sanctions for **{user}**")
@@ -716,7 +816,7 @@ async def tempmute(ctx, *, args: str = None):
     if not has_perm(ctx.author, 1):
         return
     if not args:
-        return await ctx.send("Usage: `+tempmute @user <duration> [reason]` or reply + `<duration> [reason]`")
+        return await ctx.send("invalid tempmute")
 
     user = None
     duration = None
@@ -741,15 +841,15 @@ async def tempmute(ctx, *, args: str = None):
     else:
         parts = args.split(None, 2)
         if not parts:
-            return await ctx.send("Usage: `+tempmute @user <duration> [reason]` or reply + `<duration> [reason]`")
+            return await ctx.send("invalid tempmute")
         user = await get_target(ctx, parts[0])
         duration = parts[1] if len(parts) > 1 else None
         reason = parts[2] if len(parts) > 2 else "No reason"
 
     if not user or not duration:
-        return await ctx.send("Usage: `+tempmute @user <duration> [reason]` or reply + `<duration> [reason]`")
+        return await ctx.send("invalid tempmute")
 
-    member = ctx.guild.get_member(user.id)
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
     if member.id == ctx.author.id:
@@ -783,8 +883,8 @@ async def unmute(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await ctx.send("Usage: `+unmute @user` or reply")
-    member = ctx.guild.get_member(user.id)
+        return await ctx.send("invalid unmute")
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
     try:
@@ -842,6 +942,7 @@ async def mutelist(ctx):
 
 @bot.command()
 async def ban(ctx, *, args: str = None):
+    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
 
@@ -858,20 +959,26 @@ async def ban(ctx, *, args: str = None):
     elif ctx.message.reference:
         user = await get_target(ctx, None)
         if args:
-            reason = args.strip()
+            reason = args.strip() or "No reason"
     elif args:
         parts = args.split(None, 1)
         user = await get_target(ctx, parts[0])
         if user and len(parts) > 1:
             reason = parts[1]
+        elif not user:
+            # maybe entire args is not a user — invalid
+            pass
 
     if not user:
-        return await ctx.send("Usage: `+ban @user [reason]` or reply + reason")
+        return await ctx.send("invalid ban")
     if user.id == ctx.author.id:
         return await ctx.send("You can't ban yourself.")
     try:
         await ctx.guild.ban(user, reason=reason)
-        await ctx.send(f"Banned **{user}** | Reason: {reason}")
+        if reason and reason != "No reason":
+            await ctx.send(f"Banned **{user}** | Reason: {reason}")
+        else:
+            await ctx.send(f"Banned **{user}**")
         log = discord.Embed(title="Ban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
@@ -885,20 +992,24 @@ async def unban(ctx, user_id: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
     if not user_id:
-        return await ctx.send("Usage: `+unban <user id>`")
+        return await ctx.send("invalid unban")
     try:
         user = await bot.fetch_user(int(user_id))
         await ctx.guild.unban(user)
-        await ctx.send(f"Unbanned **{user}**")
+        dm_ok = await dm_unbanned(user)
+        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
+        await ctx.send(f"Unbanned **{user}**{extra}")
         log = discord.Embed(title="Unban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed to unban: {e}")
 
 @bot.command()
 async def kick(ctx, *, args: str = None):
+    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in KICK_COMMAND_USERS:
         return
 
@@ -915,7 +1026,7 @@ async def kick(ctx, *, args: str = None):
     elif ctx.message.reference:
         user = await get_target(ctx, None)
         if args:
-            reason = args.strip()
+            reason = args.strip() or "No reason"
     elif args:
         parts = args.split(None, 1)
         user = await get_target(ctx, parts[0])
@@ -923,15 +1034,18 @@ async def kick(ctx, *, args: str = None):
             reason = parts[1]
 
     if not user:
-        return await ctx.send("Usage: `+kick @user [reason]` or reply + reason")
+        return await ctx.send("invalid kick")
     if user.id == ctx.author.id:
         return await ctx.send("You can't kick yourself.")
-    member = ctx.guild.get_member(user.id)
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
     try:
         await member.kick(reason=reason)
-        await ctx.send(f"Kicked **{user}** | Reason: {reason}")
+        if reason and reason != "No reason":
+            await ctx.send(f"Kicked **{user}** | Reason: {reason}")
+        else:
+            await ctx.send(f"Kicked **{user}**")
         log = discord.Embed(title="Kick", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
@@ -939,6 +1053,7 @@ async def kick(ctx, *, args: str = None):
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
 
 @bot.command()
 async def clear(ctx, *args):
@@ -1003,34 +1118,28 @@ async def clear(ctx, *args):
         amount = max(1, min(amount, 100))
 
     def check(m):
+        # Always allow deleting the command message itself
+        if m.id == ctx.message.id:
+            return True
         if target is None:
             return True
         return m.author.id == target.id
+
+    # Silent + instant. Purge messages BEFORE the command so the count is exact,
+    # then always delete the +clear command message too.
+    clearing_channels.add(ctx.channel.id)
+    try:
+        await ctx.channel.purge(limit=amount, check=check, before=ctx.message)
+    except Exception:
+        pass
+    finally:
+        clearing_channels.discard(ctx.channel.id)
 
     try:
         await ctx.message.delete()
     except Exception:
         pass
-
-    try:
-        deleted = await ctx.channel.purge(limit=amount, check=check)
-        if target and deleted:
-            try:
-                feedback = await ctx.send(f"Cleared **{len(deleted)}** message(s) from **{target}**.")
-                await feedback.delete(delay=3)
-            except Exception:
-                pass
-    except Exception as e:
-        try:
-            await ctx.send(f"Failed to clear: `{e}`")
-        except Exception:
-            pass
-
-    # Don't let +clear messages be sniped
-    channel_id = str(ctx.channel.id)
-    if channel_id in snipe_data:
-        del snipe_data[channel_id]
-        save_snipe()
+    # Do not touch snipe_data — leave the previous deleted message available for +snipe
 
 def find_role(guild, role_query: str):
     """Find a role by ID, mention, exact name, or partial name (e.g. 'manager' -> Manager)."""
@@ -1075,7 +1184,7 @@ async def addrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, 3):
         return
     if not args:
-        return await ctx.send("Usage: `+addrole @user RoleName` or reply + `RoleName`")
+        return await ctx.send("invalid addrole")
 
     user = None
     role_name = None
@@ -1106,9 +1215,9 @@ async def addrole(ctx, *, args: str = None):
             role_name = args.strip()
 
     if not user or not role_name:
-        return await ctx.send("Usage: `+addrole @user RoleName` or reply + `RoleName`")
+        return await ctx.send("invalid addrole")
 
-    member = ctx.guild.get_member(user.id)
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
 
@@ -1132,7 +1241,7 @@ async def delrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, 3):
         return
     if not args:
-        return await ctx.send("Usage: `+delrole @user RoleName` or reply + `RoleName`")
+        return await ctx.send("invalid delrole")
 
     user = None
     role_name = None
@@ -1159,9 +1268,9 @@ async def delrole(ctx, *, args: str = None):
             role_name = args.strip()
 
     if not user or not role_name:
-        return await ctx.send("Usage: `+delrole @user RoleName` or reply + `RoleName`")
+        return await ctx.send("invalid delrole")
 
-    member = ctx.guild.get_member(user.id)
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
 
@@ -1186,10 +1295,10 @@ async def derank(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await ctx.send("Usage: `+derank @user` or reply")
+        return await ctx.send("invalid derank")
     if user.id == ctx.author.id:
         return await ctx.send("You can't derank yourself.")
-    member = ctx.guild.get_member(user.id)
+    member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("User not in server.")
     try:
@@ -1208,7 +1317,7 @@ async def create(ctx, emoji: str = None, *, name: str = None):
         name = emoji
         emoji = None
     if not name:
-        return await ctx.send("Usage: `+create [emoji] <name>`")
+        return await ctx.send("invalid create")
     role_name = f"{emoji} {name}".strip() if emoji else name.strip()
     existing = discord.utils.find(lambda r: r.name.lower() == role_name.lower(), ctx.guild.roles)
     if existing:
@@ -1226,7 +1335,7 @@ async def rolemembers(ctx, *, role_query: str = None):
     if not has_perm(ctx.author, 2):
         return
     if not role_query:
-        return await ctx.send("Usage: `+rolemembers <role>`")
+        return await ctx.send("invalid rolemembers")
     role = discord.utils.find(
         lambda r: r.name.lower() == role_query.lower() or str(r.id) == role_query,
         ctx.guild.roles
@@ -1247,26 +1356,48 @@ async def rolemembers(ctx, *, role_query: str = None):
     await ctx.send(embed=emb)
 
 @bot.command()
-async def bl(ctx, target: str = None, *, reason: str = "No reason"):
+async def bl(ctx, *, args: str = None):
+    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in BL_COMMAND_USERS:
         return
-    user = await get_target(ctx, target)
+
+    user = None
+    reason = "No reason"
+
+    if ctx.message.mentions:
+        user = ctx.message.mentions[0]
+        if args:
+            reason = args
+            for m in ctx.message.mentions:
+                reason = reason.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+            reason = reason.strip() or "No reason"
+    elif ctx.message.reference:
+        user = await get_target(ctx, None)
+        if args:
+            reason = args.strip() or "No reason"
+    elif args:
+        parts = args.split(None, 1)
+        user = await get_target(ctx, parts[0])
+        if user and len(parts) > 1:
+            reason = parts[1]
+
     if not user:
-        return await ctx.send("Usage: `+bl @user [reason]` or reply")
+        return await ctx.send("invalid bl")
     if user.id == ctx.author.id:
         return await ctx.send("You can't blacklist yourself.")
-    member = ctx.guild.get_member(user.id)
-    if ctx.message.reference and target and not target.isdigit() and not ctx.message.mentions:
-        reason = f"{target} {reason}".strip()
     uid = str(user.id)
     if uid not in blacklist:
         blacklist.append(uid)
         save_blacklist()
     try:
         await ctx.guild.ban(user, reason=f"Blacklisted: {reason}")
-    except:
+    except Exception:
         pass
-    emb = discord.Embed(title="blacklist", description=f"{user.mention} banned and blacklisted\nreason: {reason}", color=0x000000)
+    if reason and reason != "No reason":
+        desc = f"{user.mention} banned and blacklisted\nreason: {reason}"
+    else:
+        desc = f"{user.mention} banned and blacklisted"
+    emb = discord.Embed(title="blacklist", description=desc, color=0x000000)
     await ctx.send(embed=emb)
     log = discord.Embed(title="Blacklist", color=0x000000, timestamp=datetime.now())
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
@@ -1274,21 +1405,33 @@ async def bl(ctx, target: str = None, *, reason: str = "No reason"):
     log.add_field(name="Reason", value=reason, inline=False)
     await send_log(log)
 
+
 @bot.command()
 async def unbl(ctx, user_id: str = None):
     if str(ctx.author.id) not in BL_COMMAND_USERS:
         return
     if not user_id:
-        return await ctx.send("Usage: `+unbl <user id>`")
+        return await ctx.send("invalid unbl")
     uid = user_id.strip()
     if uid in blacklist:
         blacklist.remove(uid)
         save_blacklist()
+    user = None
     try:
         user = await bot.fetch_user(int(uid))
-        await ctx.guild.unban(user)
-        await ctx.send(f"Removed `{uid}` from blacklist and unbanned.")
-    except:
+        try:
+            await ctx.guild.unban(user)
+        except Exception:
+            pass
+        dm_ok = await dm_unbanned(user)
+        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
+        await ctx.send(f"Removed `{uid}` from blacklist and unbanned.{extra}")
+        log = discord.Embed(title="Unblacklist", color=0x000000, timestamp=datetime.now())
+        log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
+        log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
+        await send_log(log)
+    except Exception:
         await ctx.send(f"Removed `{uid}` from blacklist.")
 
 @bot.command()
@@ -1323,8 +1466,7 @@ async def help(ctx):
         description=(
             "Prefix: `+`\n"
             "You can **reply** to a message instead of mentioning the user.\n\n"
-            "*This is **not** the official Steal A Lunar bot.*\n"
-            "**Founder:** Wisty"
+            "**Bot maker:** teix · **Founder:** LEO"
         )
     )
     emb.add_field(
@@ -1354,7 +1496,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="Special Users only",
-        value="`+ban` `+unban` (some users) · `+kick` · `+bl` `+unbl` (user ID only)",
+        value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
         inline=False
     )
     emb.add_field(
@@ -1362,7 +1504,7 @@ async def help(ctx):
         value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
         inline=False
     )
-    emb.set_footer(text="Founder: Wisty • Not the official Steal A Lunar bot")
+    emb.set_footer(text="Bot maker: teix • Founder: LEO")
     await ctx.send(embed=emb)
 
 # ==================== KEEP-ALIVE (for hosts that sleep) ====================
