@@ -1408,8 +1408,7 @@ async def help(ctx):
         description=(
             "Prefix: `+`\n"
             "You can **reply** to a message instead of mentioning the user.\n\n"
-            "*This is **not** the official Steal A Lunar bot.*\n"
-            "**Founder:** Wisty"
+            "**Bot maker:** teix · **Founder:** LEO"
         )
     )
     emb.add_field(
@@ -1447,7 +1446,7 @@ async def help(ctx):
         value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
         inline=False
     )
-    emb.set_footer(text="Founder: Wisty • Not the official Steal A Lunar bot")
+    emb.set_footer(text="Bot maker: teix • Founder: LEO")
     await ctx.send(embed=emb)
 
 # ==================== KEEP-ALIVE (for hosts that sleep) ====================
