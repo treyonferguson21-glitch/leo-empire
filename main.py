@@ -1354,7 +1354,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="Special Users only",
-        value="`+ban` `+unban` (some users) · `+kick` · `+bl` `+unbl` (user ID only)",
+        value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
         inline=False
     )
     emb.add_field(
