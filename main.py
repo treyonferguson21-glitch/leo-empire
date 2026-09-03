@@ -365,10 +365,12 @@ def parse_duration(text: str):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    # Streaming status = purple "LIVE" badge (premium look)
     await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="Leos empire"
+        status=discord.Status.online,
+        activity=discord.Streaming(
+            name="steal a brainrot",
+            url="https://www.twitch.tv/discord"
         )
     )
     for guild in bot.guilds:
@@ -1081,24 +1083,16 @@ async def clear(ctx, *args):
             return True
         return m.author.id == target.id
 
+    # Silent + instant: delete the command message with the purge, no reply
     try:
-        await ctx.message.delete()
+        await ctx.channel.purge(limit=amount, check=check)
     except Exception:
         pass
 
     try:
-        deleted = await ctx.channel.purge(limit=amount, check=check)
-        if target and deleted:
-            try:
-                feedback = await ctx.send(f"Cleared **{len(deleted)}** message(s) from **{target}**.")
-                await feedback.delete(delay=3)
-            except Exception:
-                pass
-    except Exception as e:
-        try:
-            await ctx.send(f"Failed to clear: `{e}`")
-        except Exception:
-            pass
+        await ctx.message.delete()
+    except Exception:
+        pass
 
     # Don't let +clear messages be sniped
     channel_id = str(ctx.channel.id)
