@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
+APPEAL_CHANNEL_ID = 1544449118489808976  # unban appeals
 
 # Welcome system
 WELCOME_CHANNEL_ID = 1512494871644995740
@@ -235,6 +236,21 @@ async def send_log(embed: discord.Embed):
     except Exception:
         pass
 
+async def send_appeal(embed: discord.Embed):
+    """Send an unban appeal embed to the appeals channel."""
+    ch = bot.get_channel(APPEAL_CHANNEL_ID)
+    if ch is None:
+        try:
+            ch = await bot.fetch_channel(APPEAL_CHANNEL_ID)
+        except Exception:
+            # fallback to main log
+            await send_log(embed)
+            return
+    try:
+        await ch.send(embed=embed)
+    except Exception:
+        await send_log(embed)
+
 
 def add_sanction(user_id: int, reason: str, mod_id: int):
     uid = str(user_id)
@@ -337,6 +353,129 @@ async def empty_result(ctx, text: str):
 
 SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
 
+# Active unban appeal DM interviews: user_id -> {"step": str, "data": {}}
+appeal_sessions = {}
+
+async def dm_ban_appeal(user, reason: str = "No reason"):
+    """DM ban notice + how to appeal BEFORE they lose mutual servers. Returns True if sent."""
+    if user is None or getattr(user, "bot", False):
+        return False
+    try:
+        emb = discord.Embed(
+            title="You have been banned from LEO'S EMPIRE",
+            description=(
+                f"**Reason:** {reason}\n\n"
+                "You can **apply to get unbanned** by DMing me:\n"
+                "`+appeal`\n\n"
+                "I will ask for your user ID, ban reason, and why you want to be unbanned."
+            ),
+            color=0x000000,
+        )
+        emb.set_footer(text="LEO'S EMPIRE • Unban appeals")
+        await user.send(embed=emb)
+        return True
+    except Exception:
+        try:
+            await user.send(
+                f"You have been banned from **LEO'S EMPIRE**.\n"
+                f"Reason: {reason}\n\n"
+                f"To apply for an unban, DM me: `+appeal`"
+            )
+            return True
+        except Exception:
+            return False
+
+
+async def start_appeal_session(user):
+    """Begin multi-step appeal interview in DMs."""
+    appeal_sessions[user.id] = {"step": "user_id", "data": {}}
+    await user.send(
+        "**Unban appeal — LEO'S EMPIRE**\n\n"
+        "**Question 1/3:** What is your **Discord user ID**?\n"
+        "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
+        "Type `cancel` anytime to stop."
+    )
+
+
+async def continue_appeal_session(message) -> bool:
+    """Handle the next step of an appeal interview. Returns True if message was consumed."""
+    uid = message.author.id
+    session = appeal_sessions.get(uid)
+    if not session:
+        return False
+
+    text = (message.content or "").strip()
+    if not text:
+        return True
+
+    if text.lower() in ("cancel", "stop", "quit"):
+        appeal_sessions.pop(uid, None)
+        await message.channel.send("Appeal cancelled.")
+        return True
+
+    step = session["step"]
+    data = session["data"]
+
+    if step == "user_id":
+        raw = text.replace("<@", "").replace("!", "").replace(">", "").strip()
+        if not raw.isdigit() or len(raw) < 15:
+            await message.channel.send(
+                "That doesn't look like a user ID. Send numbers only (right-click profile → Copy User ID)."
+            )
+            return True
+        data["user_id"] = raw
+        session["step"] = "ban_reason"
+        await message.channel.send(
+            "**Question 2/3:** What was the **reason you got banned**?\n"
+            "(Write what you were banned for, as best you know.)"
+        )
+        return True
+
+    if step == "ban_reason":
+        if len(text) < 3:
+            await message.channel.send("Please write a bit more for the ban reason.")
+            return True
+        data["ban_reason"] = text[:1000]
+        session["step"] = "why_unban"
+        await message.channel.send(
+            "**Question 3/3:** **Why do you want to get unbanned?**\n"
+            "(Explain why staff should unban you.)"
+        )
+        return True
+
+    if step == "why_unban":
+        if len(text) < 3:
+            await message.channel.send("Please write a bit more about why you want to be unbanned.")
+            return True
+        data["why_unban"] = text[:1500]
+        appeal_sessions.pop(uid, None)
+
+        emb = discord.Embed(
+            title="Unban Appeal",
+            color=0x000000,
+            timestamp=datetime.now(),
+        )
+        emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)", inline=False)
+        emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`", inline=False)
+        emb.add_field(name="Reason they were banned", value=data.get("ban_reason", "?")[:1000], inline=False)
+        emb.add_field(name="Why they want unbanned", value=data.get("why_unban", "?")[:1500], inline=False)
+        emb.add_field(
+            name="Staff action",
+            value=f"`+unban {data.get('user_id', message.author.id)}`",
+            inline=False,
+        )
+        emb.set_thumbnail(url=message.author.display_avatar.url)
+        emb.set_footer(text="LEO'S EMPIRE • Appeal")
+        await send_appeal(emb)
+        await message.channel.send(
+            "Your unban appeal was **sent** to LEO'S EMPIRE staff.\n"
+            "Please wait for a decision — do not spam appeals."
+        )
+        return True
+
+    return False
+
+
 async def dm_unbanned(user):
     """Try to DM a user that they were unbanned. May fail if no mutual server / DMs closed."""
     if user is None or getattr(user, "bot", False):
@@ -345,19 +484,18 @@ async def dm_unbanned(user):
         emb = discord.Embed(
             title="You have been unbanned",
             description=(
-                "You have been **unbanned** from **Leo's empire**.\n\n"
+                "You have been **unbanned** from **LEO'S EMPIRE**.\n\n"
                 f"You can rejoin here: {SERVER_INVITE}"
             ),
             color=0x000000,
         )
-        emb.set_footer(text="Leo's empire")
+        emb.set_footer(text="LEO'S EMPIRE")
         await user.send(embed=emb)
         return True
     except Exception:
-        # Fallback plain text
         try:
             await user.send(
-                f"You have been unbanned from **Leo's empire**.\n"
+                f"You have been unbanned from **LEO'S EMPIRE**.\n"
                 f"Rejoin here: {SERVER_INVITE}"
             )
             return True
@@ -638,6 +776,11 @@ async def on_message(message):
     if await filter_bad_content(message):
         return
 
+    # Multi-step unban appeal interview (mainly DMs)
+    if message.author.id in appeal_sessions:
+        if await continue_appeal_session(message):
+            return
+
     await bot.process_commands(message)
 
 
@@ -666,7 +809,7 @@ async def on_member_join(member):
             ch = await bot.fetch_channel(WELCOME_CHANNEL_ID)
         count = member.guild.member_count or len(member.guild.members)
         text = (
-            f"Welcome to {member.mention} in **{member.guild.name}** !\n\n"
+            f"Welcome to {member.mention} in **LEO'S EMPIRE** !\n\n"
             f"> 💬 <#{WELCOME_CHAT_ID}>\n"
             f"> 📜 <#{WELCOME_RULES_ID}>\n"
             f"> 📢 <#{WELCOME_ANNOUNCEMENTS_ID}>\n"
@@ -1139,6 +1282,8 @@ async def ban(ctx, *, args: str = None):
     if user.id == ctx.author.id:
         return await ctx.send("invalid ban")
     try:
+        # DM appeal info before ban (while mutual server still exists)
+        dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
         if reason and reason != "No reason":
             await ctx.send(f"Banned **{user}** | Reason: {reason}")
@@ -1148,9 +1293,28 @@ async def ban(ctx, *, args: str = None):
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Reason", value=reason, inline=False)
+        log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
+@bot.command()
+async def appeal(ctx, *, _ignored: str = None):
+    """
+    Start an unban appeal interview (best in DMs).
+    Asks: user ID, ban reason, why they want unbanned.
+    """
+    # Prefer DMs so banned users can still apply
+    dest = ctx.author
+    try:
+        if ctx.guild is not None:
+            await ctx.send("Check your DMs — I started your unban appeal there.")
+        await start_appeal_session(dest)
+    except Exception:
+        await ctx.send(
+            "I couldn't DM you. Open your DMs (Privacy Settings → Allow DMs from server members) and try `+appeal` again in my DMs."
+        )
+
 
 @bot.command()
 async def unban(ctx, user_id: str = None):
@@ -1669,6 +1833,7 @@ async def bl(ctx, *, args: str = None):
     if uid not in blacklist:
         blacklist.append(uid)
         save_blacklist()
+    dm_ok = await dm_ban_appeal(user, reason)
     try:
         await ctx.guild.ban(user, reason=f"Blacklisted: {reason}")
     except Exception:
@@ -1683,6 +1848,7 @@ async def bl(ctx, *, args: str = None):
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
     log.add_field(name="Reason", value=reason, inline=False)
+    log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
     await send_log(log)
 
 
