@@ -66,8 +66,9 @@ ROLES = {
             1512494871171043541,  # Manager
             1543925240705585284,  # Overlord
             1534637036542365787,  # King
+            1545848631750299789,  # Head Manager
         ],
-        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Overlord", "King", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
+        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Overlord", "King", "Head Manager", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
     },
     5: {
         "ids": [
