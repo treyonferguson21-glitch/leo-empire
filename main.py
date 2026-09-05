@@ -1015,21 +1015,51 @@ async def snipe(ctx):
 
 @bot.command(aliases=["warns"])
 async def sanctions(ctx, target: str = None):
+    """Works for members, left users, and banned users (lookup by ID)."""
     try:
-        user = await get_target(ctx, target)
-        if user is None:
-            user = ctx.author
-        lst = sanctions_data.get(str(user.id), [])
+        user = None
+        uid = None
+
+        # Prefer raw user ID so banned people still resolve
+        if target:
+            raw = target.strip().replace("<@", "").replace("!", "").replace(">", "")
+            if raw.isdigit():
+                uid = raw
+                try:
+                    user = await bot.fetch_user(int(uid))
+                except Exception:
+                    user = None
+            else:
+                user = await get_target(ctx, target)
+                if user:
+                    uid = str(user.id)
+        else:
+            user = await get_target(ctx, None)
+            if user is None:
+                user = ctx.author
+            uid = str(user.id)
+
+        if not uid:
+            return await ctx.send("invalid sanctions")
+
+        lst = sanctions_data.get(str(uid), [])
+        display = str(user) if user else f"User `{uid}`"
         if not lst:
-            return await empty_result(ctx, f"**{user}** has no sanctions.")
-        text = "\n".join(f"{s['id']} - {s['date']}: {s['reason']}" for s in lst)
-        # Discord embed description limit is 4096
+            return await empty_result(ctx, f"**{display}** has no sanctions.")
+
+        # Newest sanctions at the top (keep original IDs)
+        ordered = list(reversed(lst))
+        text = "\n".join(f"{s['id']} - {s['date']}: {s['reason']}" for s in ordered)
         if len(text) > 4000:
             text = text[:4000] + "\n..."
-        emb = discord.Embed(description=text, color=0x000000)
-        avatar = getattr(getattr(user, "display_avatar", None), "url", None)
-        emb.set_author(name=str(user), icon_url=avatar)
-        emb.set_footer(text="Crow Bots")
+
+        emb = discord.Embed(description=text, color=0x000001)
+        if user is not None:
+            avatar = getattr(getattr(user, "display_avatar", None), "url", None)
+            emb.set_author(name=str(user), icon_url=avatar)
+        else:
+            emb.set_author(name=f"User {uid}")
+        emb.set_footer(text="LEO'S EMPIRE")
         await ctx.send(embed=emb)
     except Exception as e:
         await ctx.send(f"Failed to load sanctions: `{e}`")
