@@ -215,13 +215,31 @@ def has_perm(member: discord.Member, level: int) -> bool:
     return get_perm_level(member) >= level
 
 def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
+    """Lower ranks cannot moderate equal or higher ranks (role position + bot perm level)."""
+    if moderator is None or target is None:
+        return False
     if moderator.id == target.id:
         return False
+    if str(moderator.id) in SPECIAL_USERS:
+        return True
     if moderator.id == moderator.guild.owner_id:
         return True
     if target.id == target.guild.owner_id:
         return False
-    return moderator.top_role > target.top_role
+    if str(target.id) in SPECIAL_USERS:
+        return False
+    # Bot staff perm levels (1-5): must be strictly higher
+    mod_level = get_perm_level(moderator)
+    target_level = get_perm_level(target)
+    if target_level > 0 and mod_level <= target_level:
+        return False
+    # Discord role hierarchy
+    try:
+        if moderator.top_role <= target.top_role:
+            return False
+    except Exception:
+        return False
+    return True
 
 
 async def send_log(embed: discord.Embed):
@@ -1096,6 +1114,10 @@ async def warn(ctx, *, args: str = None):
     if not user:
         return await ctx.send("invalid warn")
 
+    target_member = await get_member(ctx.guild, user)
+    if target_member and not can_moderate(ctx.author, target_member):
+        return await ctx.send("You can't warn someone with an equal or higher rank.")
+
     add_sanction(user.id, reason, ctx.author.id)
     emb = discord.Embed(title="warn", description=f"{user.mention} was warned\nreason: {reason}", color=0x000000)
     await ctx.send(embed=emb)
@@ -1112,6 +1134,9 @@ async def clearwarns(ctx, target: str = None):
     user = await get_target(ctx, target)
     if not user:
         return await ctx.send("invalid clearwarns")
+    target_member = await get_member(ctx.guild, user)
+    if target_member and not can_moderate(ctx.author, target_member):
+        return await ctx.send("You can't clear warns for someone with an equal or higher rank.")
     sanctions_data[str(user.id)] = []
     save_sanctions()
     await ctx.send(f"Cleared all sanctions for **{user}**")
@@ -1163,6 +1188,8 @@ async def tempmute(ctx, *, args: str = None):
         return await ctx.send("invalid tempmute")
     if member.id == ctx.author.id:
         return await ctx.send("invalid tempmute")
+    if not can_moderate(ctx.author, member):
+        return await ctx.send("You can't tempmute someone with an equal or higher rank.")
 
     delta = parse_duration(duration)
     if not delta:
@@ -1196,6 +1223,8 @@ async def unmute(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid unmute")
+    if not can_moderate(ctx.author, member):
+        return await ctx.send("You can't unmute someone with an equal or higher rank.")
     try:
         await member.timeout(None)
         await ctx.send(f"Unmuted {member.mention} successfully")
@@ -1370,6 +1399,8 @@ async def kick(ctx, *, args: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid kick")
+    if not can_moderate(ctx.author, member):
+        return await ctx.send("You can't kick someone with an equal or higher rank.")
     try:
         await member.kick(reason=reason)
         if reason and reason != "No reason":
@@ -1746,6 +1777,8 @@ async def derank(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid derank")
+    if not can_moderate(ctx.author, member):
+        return await ctx.send("You can't derank someone with an equal or higher rank.")
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
         await member.remove_roles(*roles)
