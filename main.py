@@ -1209,7 +1209,7 @@ async def derank(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid derank")
-    # Changed: higher roles can now derank lower roles (even if same perm level)
+    # Instant derank: remove ALL non-default, non-managed roles instantly
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
         await member.remove_roles(*roles)
