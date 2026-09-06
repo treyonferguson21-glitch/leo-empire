@@ -33,11 +33,13 @@ BAN_COMMAND_USERS = [
 # +kick only
 KICK_COMMAND_USERS = [
     "1517924890370375928",
+    "1391635894045380619",
 ]
 
 # +bl +unbl only
 BL_COMMAND_USERS = [
     "1517924890370375928",
+    "1391635894045380619",
 ]
 
 # Exact role names from your server (used once to find role IDs).
