@@ -24,80 +24,43 @@ SPECIAL_USERS = [
     "1517924890370375928",
 ]
 
-# +ban +unban only
+# +ban +unban +bl +unbl only (1391635894045380619 added)
 BAN_COMMAND_USERS = [
     "1517924890370375928",
     "1391635894045380619",
 ]
 
-# +kick only
+# +kick only (1391635894045380619 added)
 KICK_COMMAND_USERS = [
     "1517924890370375928",
     "1391635894045380619",
 ]
 
-# +bl +unbl only
+# +bl +unbl only (1391635894045380619 added)
 BL_COMMAND_USERS = [
     "1517924890370375928",
     "1391635894045380619",
 ]
 
-# Exact role names from your server (used once to find role IDs).
-# After the bot finds them, it saves the ROLE IDs — so if you rename a role,
-# permissions still work without updating this list.
+# Exact role names from your server
 ROLES = {
-    # Perm level -> role IDs (primary) + optional names (display / fallback only)
-    1: {
-        "ids": [1540435355633975366],  # Test Moderator
-        "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"],
-    },
-    2: {
-        "ids": [1512494871158591779],  # Moderator
-        "names": ["Moderator", "[ S ] • Moderator"],
-    },
-    3: {
-        "ids": [
-            1540434933166776400,  # Senior Mod
-            1543926509520293908,  # Head Staff
-        ],
-        "names": ["Senior Mod", "Head Staff", "[ S ] • Senior Mod", "[ H ] • Head Staff"],
-    },
-    4: {
-        "ids": [
-            1512494871171043540,  # Admin
-            1512494871171043541,  # Manager
-            1546192012435390515,  # Community Manager
-            1534637036542365787,  # King
-            1545848631750299789,  # Head Manager
-        ],
-        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Community Manager", "King", "Head Manager", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
-    },
-    5: {
-        "ids": [
-            1540425618620162139,  # Founder
-            1512494871171043543,  # Owners
-            1544803993480466563,  # Co owners
-            1546202087640272986,  # Co founder
-        ],
-        "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners", "[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner", "[ COF ] • Co Founder"],
-    },
+    1: {"ids": [1540435355633975366], "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"]},
+    2: {"ids": [1512494871158591779], "names": ["Moderator", "[ S ] • Moderator"]},
+    3: {"ids": [1540434933166776400, 1543926509520293908], "names": ["Senior Mod", "Head Staff", "[ S ] • Senior Mod", "[ H ] • Head Staff"]},
+    4: {"ids": [1512494871171043540, 1512494871171043541, 1546192012435390515, 1534637036542365787, 1545848631750299789], "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Community Manager", "King", "Head Manager"]},
+    5: {"ids": [1540425618620162139, 1512494871171043543, 1544803993480466563, 1546202087640272986], "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners"]},
 }
 
 BLACKLISTED_WORDS = [
-    # slurs / hate
     "nigger", "nigga", "faggot", "fag", "tranny", "retard", "retarded",
     "nazi", "hitler", "kike", "chink", "spic", "coon", "beaner",
-    # sexual / crude
     "femboy", "d*ck", "dick", "cock", "pussy", "whore", "slut", "hoe",
     "porn", "nudes", "onlyfans",
-    # self-harm / threats
     "kys", "kill yourself", "kill urself", "hang yourself", "go die",
     "neck yourself", "end yourself",
-    # other
     "server",
 ]
 
-# Scam / nitro bait — separate message + sanction reason "link"
 SCAM_WORDS = [
     "free nitro", "discord.gift", "steamcommunity.com/gift",
     "free nitro giveaway", "nitro gift", "claim nitro",
@@ -132,7 +95,6 @@ def save_json(path, data):
 sanctions_data = load_json(SANCTIONS_FILE, {})
 blacklist = load_json(BLACKLIST_FILE, [])
 snipe_data = load_json(SNIPE_FILE, {})
-clearing_channels = set()
 role_perms = load_json(ROLE_PERMS_FILE, {})
 temproles_data = load_json(TEMPROLES_FILE, [])
 _temprole_tasks = {}
@@ -185,7 +147,6 @@ def resolve_role_ids(guild: discord.Guild, force: bool = False) -> dict:
                     found.append(role.id)
                     used_ids.add(role.id)
         mapping[level] = found
-
     role_perms[gid] = {str(k): v for k, v in mapping.items()}
     save_role_perms()
     return {k: set(v) for k, v in mapping.items()}
@@ -236,10 +197,7 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
     await bot.change_presence(
         status=discord.Status.online,
-        activity=discord.Streaming(
-            name="LEOS EMPIRE",
-            url="https://www.twitch.tv/discord"
-        )
+        activity=discord.Streaming(name="LEOS EMPIRE", url="https://www.twitch.tv/discord")
     )
     for guild in bot.guilds:
         try:
@@ -497,17 +455,9 @@ async def syncroles(ctx):
     cache = resolve_role_ids(ctx.guild, force=True)
     lines = []
     for level in sorted(cache.keys()):
-        roles = []
-        for rid in cache[level]:
-            role = ctx.guild.get_role(rid)
-            if role:
-                roles.append(role.mention)
+        roles = [ctx.guild.get_role(rid).mention for rid in cache[level] if ctx.guild.get_role(rid)]
         lines.append(f"**Perm {level}:** {' '.join(roles) if roles else 'none'}")
-    emb = discord.Embed(
-        title="Roles synced",
-        description="\n".join(lines) or "No roles matched.",
-        color=0x000000
-    )
+    emb = discord.Embed(title="Roles synced", description="\n".join(lines) or "No roles matched.", color=0x000000)
     emb.set_footer(text="Saved role IDs. Renaming these roles will still keep the same perms.")
     await ctx.send(embed=emb)
 
@@ -637,7 +587,7 @@ async def warn(ctx, *, args: str = None):
         if args:
             reason = args
             for m in ctx.message.mentions:
-                reason = reason.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+                reason = reason.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
             reason = reason.strip() or "No reason provided"
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -695,7 +645,7 @@ async def tempmute(ctx, *, args: str = None):
         user = ctx.message.mentions[0]
         rest = args
         for m in ctx.message.mentions:
-            rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+            rest = rest.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
         rest = rest.strip()
         parts = rest.split(None, 1)
         duration = parts[0] if parts else None
@@ -794,11 +744,7 @@ async def mutelist(ctx):
     not_shown = len(muted) - max_show
     if not_shown > 0:
         description += f"\n{not_shown} not showed"
-    emb = discord.Embed(
-        title="Current mutes",
-        description=description,
-        color=0x000000
-    )
+    emb = discord.Embed(title="Current mutes", description=description, color=0x000000)
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -812,7 +758,7 @@ async def ban(ctx, *, args: str = None):
         if args:
             reason = args
             for m in ctx.message.mentions:
-                reason = reason.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+                reason = reason.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
             reason = reason.strip() or "No reason"
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -853,9 +799,7 @@ async def appeal(ctx, *, _ignored: str = None):
             await ctx.send("Check your DMs — I started your unban appeal there.")
         await start_appeal_session(dest)
     except Exception:
-        await ctx.send(
-            "I couldn't DM you. Open your DMs (Privacy Settings → Allow DMs from server members) and try `+appeal` again in my DMs."
-        )
+        await ctx.send("I couldn't DM you. Open your DMs and try `+appeal` again.")
 
 @bot.command()
 async def unban(ctx, user_id: str = None):
@@ -867,7 +811,7 @@ async def unban(ctx, user_id: str = None):
         user = await bot.fetch_user(int(user_id))
         await ctx.guild.unban(user)
         dm_ok = await dm_unbanned(user)
-        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
+        extra = " (DM sent)" if dm_ok else " (could not DM)"
         await ctx.send(f"Unbanned **{user}**{extra}")
         log = discord.Embed(title="Unban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
@@ -888,7 +832,7 @@ async def kick(ctx, *, args: str = None):
         if args:
             reason = args
             for m in ctx.message.mentions:
-                reason = reason.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+                reason = reason.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
             reason = reason.strip() or "No reason"
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -1035,7 +979,7 @@ async def temprole(ctx, *, args: str = None):
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         for m in ctx.message.mentions:
-            rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+            rest = rest.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
     if user is None and ctx.message.reference:
         ref = ctx.message.reference
         if ref.resolved and hasattr(ref.resolved, "author"):
@@ -1113,7 +1057,7 @@ async def addrole(ctx, *, args: str = None):
         user = ctx.message.mentions[0]
         role_name = args
         for m in ctx.message.mentions:
-            role_name = role_name.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+            role_name = role_name.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
         role_name = role_name.strip()
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -1161,7 +1105,7 @@ async def delrole(ctx, *, args: str = None):
         user = ctx.message.mentions[0]
         role_name = args
         for m in ctx.message.mentions:
-            role_name = role_name.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+            role_name = role_name.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
         role_name = role_name.strip()
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -1209,8 +1153,18 @@ async def derank(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid derank")
-    if not can_moderate(ctx.author, member):
-        return await ctx.send("You can't derank someone with an equal or higher rank.")
+
+    if str(target.id) in SPECIAL_USERS:
+        return await ctx.send("You cannot derank Special Users.")
+
+    if str(ctx.author.id) not in SPECIAL_USERS:
+        if ctx.author.id == ctx.guild.owner_id:
+            pass
+        else:
+            target_level = get_perm_level(user)
+            if target_level > 0 and get_perm_level(ctx.author) <= target_level:
+                return await ctx.send("You can't derank someone with an equal or higher rank.")
+
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
         await member.remove_roles(*roles)
@@ -1255,11 +1209,7 @@ async def rolemembers(ctx, *, role_query: str = None):
     if not members:
         return await ctx.send(f"No members have the role **{role.name}**.")
     lines = [f"{m.mention} (`{m.id}`)" for m in members[:30]]
-    emb = discord.Embed(
-        title=f"Members with {role.name} ({len(members)})",
-        description="\n".join(lines),
-        color=0x000000
-    )
+    emb = discord.Embed(title=f"Members with {role.name} ({len(members)})", description="\n".join(lines), color=0x000000)
     if len(members) > 30:
         emb.set_footer(text=f"Showing 30/{len(members)}")
     await ctx.send(embed=emb)
@@ -1275,7 +1225,7 @@ async def bl(ctx, *, args: str = None):
         if args:
             reason = args
             for m in ctx.message.mentions:
-                reason = reason.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+                reason = reason.replace(f"<@", "").replace(f"<@!", "").replace(">", "")
             reason = reason.strip() or "No reason"
     elif ctx.message.reference:
         user = await get_target(ctx, None)
@@ -1330,7 +1280,7 @@ async def unbl(ctx, user_id: str = None):
         except Exception:
             pass
         dm_ok = await dm_unbanned(user)
-        extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
+        extra = " (DM sent)" if dm_ok else " (could not DM)"
         await ctx.send(f"Removed `{uid}` from blacklist and unbanned.{extra}")
         log = discord.Embed(title="Unblacklist", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
@@ -1369,47 +1319,15 @@ async def help(ctx):
     emb = discord.Embed(
         title="Command List",
         color=0x000000,
-        description=(
-            "Prefix: `+`\n"
-            "You can **reply** to a message instead of mentioning the user.\n\n"
-            "**Bot maker:** teix · **Founder:** LEO"
-        )
+        description="Prefix: `+`\nYou can reply to a message instead of mentioning the user.\n\nBot maker: teix · Founder: LEO"
     )
-    emb.add_field(
-        name="Perm 1",
-        value="`+help` `+warn <member> [reason]` `+mutelist` `+perms` `+sanctions <member>` `+tempmute <member> <duration> [reason]` `+unmute <member>`",
-        inline=False
-    )
-    emb.add_field(
-        name="Perm 2",
-        value="`+del sanction <member> <number>` `+rolemembers <role>`",
-        inline=False
-    )
-    emb.add_field(
-        name="Perm 3",
-        value="`+derank <member>` `+clearwarns <member>` `+addrole <member> <role>` `+delrole <member> <role>`",
-        inline=False
-    )
-    emb.add_field(
-        name="Perm 4",
-        value="`+clear [number] [member]` `+create [emoji] [name]`",
-        inline=False
-    )
-    emb.add_field(
-        name="Perm 5",
-        value="**Has access to all commands** · `+temprole <member> <duration> <role>`",
-        inline=False
-    )
-    emb.add_field(
-        name="Special Users only",
-        value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
-        inline=False
-    )
-    emb.add_field(
-        name="Everyone",
-        value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
-        inline=False
-    )
+    emb.add_field(name="Perm 1", value="`+help` `+warn <member> [reason]` `+mutelist` `+perms` `+sanctions <member>` `+tempmute <member> <duration> [reason]` `+unmute <member>`", inline=False)
+    emb.add_field(name="Perm 2", value="`+del sanction <member> <number>` `+rolemembers <role>`", inline=False)
+    emb.add_field(name="Perm 3", value="`+derank <member>` `+clearwarns <member>` `+addrole <member> <role>` `+delrole <member> <role>`", inline=False)
+    emb.add_field(name="Perm 4", value="`+clear [number] [member]` `+create [emoji] [name]`", inline=False)
+    emb.add_field(name="Perm 5", value="**Has access to all commands** · `+temprole <member> <duration> <role>`", inline=False)
+    emb.add_field(name="Special Users only", value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)", inline=False)
+    emb.add_field(name="Everyone", value="`+userinfo` `+serverinfo` `+snipe` `+ping`", inline=False)
     emb.set_footer(text="Bot maker: teix • Founder: LEO")
     await ctx.send(embed=emb)
 
@@ -1420,12 +1338,7 @@ async def dm_ban_appeal(user, reason: str = "No reason"):
     try:
         emb = discord.Embed(
             title="You have been banned from LEO'S EMPIRE",
-            description=(
-                f"**Reason:** {reason}\n\n"
-                "You can **apply to get unbanned** by DMing me:\n"
-                "`+appeal`\n\n"
-                "I will ask for your user ID, ban reason, and why you want to be unbanned."
-            ),
+            description=f"**Reason:** {reason}\n\nYou can **apply to get unbanned** by DMing me:\n`+appeal`",
             color=0x000000,
         )
         emb.set_footer(text="LEO'S EMPIRE • Unban appeals")
@@ -1433,11 +1346,7 @@ async def dm_ban_appeal(user, reason: str = "No reason"):
         return True
     except Exception:
         try:
-            await user.send(
-                f"You have been banned from **LEO'S EMPIRE**.\n"
-                f"Reason: {reason}\n\n"
-                f"To apply for an unban, DM me: `+appeal`"
-            )
+            await user.send(f"You have been banned from **LEO'S EMPIRE**.\nReason: {reason}\n\nTo apply: DM me `+appeal`")
             return True
         except Exception:
             return False
@@ -1446,12 +1355,7 @@ appeal_sessions = {}
 
 async def start_appeal_session(user):
     appeal_sessions[user.id] = {"step": "user_id", "data": {}}
-    await user.send(
-        "**Unban appeal — LEO'S EMPIRE**\n\n"
-        "**Question 1/3:** What is your **Discord user ID**?\n"
-        "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
-        "Type `cancel` anytime to stop."
-    )
+    await user.send("**Unban appeal — LEO'S EMPIRE**\n\n**Question 1/3:** What is your **Discord user ID**?\nType `cancel` anytime to stop.")
 
 async def continue_appeal_session(message) -> bool:
     uid = message.author.id
@@ -1470,55 +1374,36 @@ async def continue_appeal_session(message) -> bool:
     if step == "user_id":
         raw = text.replace("<@", "").replace("!", "").replace(">", "").strip()
         if not raw.isdigit() or len(raw) < 15:
-            await message.channel.send(
-                "That doesn't look like a user ID. Send numbers only (right-click profile → Copy User ID)."
-            )
+            await message.channel.send("That doesn't look like a user ID.")
             return True
         data["user_id"] = raw
         session["step"] = "ban_reason"
-        await message.channel.send(
-            "**Question 2/3:** What was the **reason you got banned**?\n"
-            "(Write what you were banned for, as best you know.)"
-        )
+        await message.channel.send("**Question 2/3:** What was the **reason you got banned**?")
         return True
     if step == "ban_reason":
         if len(text) < 3:
-            await message.channel.send("Please write a bit more for the ban reason.")
+            await message.channel.send("Please write a bit more.")
             return True
         data["ban_reason"] = text[:1000]
         session["step"] = "why_unban"
-        await message.channel.send(
-            "**Question 3/3:** **Why do you want to get unbanned?**\n"
-            "(Explain why staff should unban you.)"
-        )
+        await message.channel.send("**Question 3/3:** **Why do you want to get unbanned?**")
         return True
     if step == "why_unban":
         if len(text) < 3:
-            await message.channel.send("Please write a bit more about why you want to be unbanned.")
+            await message.channel.send("Please write a bit more.")
             return True
         data["why_unban"] = text[:1500]
         appeal_sessions.pop(uid, None)
-        emb = discord.Embed(
-            title="Unban Appeal",
-            color=0x000000,
-            timestamp=datetime.now(),
-        )
-        emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)", inline=False)
-        emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`", inline=False)
-        emb.add_field(name="Reason they were banned", value=data.get("ban_reason", "?")[:1000], inline=False)
-        emb.add_field(name="Why they want unbanned", value=data.get("why_unban", "?")[:1500], inline=False)
-        emb.add_field(
-            name="Staff action",
-            value=f"`+unban {data.get('user_id', message.author.id)}`",
-            inline=False,
-        )
+        emb = discord.Embed(title="Unban Appeal", color=0x000000, timestamp=datetime.now())
+        emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)")
+        emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`")
+        emb.add_field(name="Reason they were banned", value=data.get("ban_reason", "?")[:1000])
+        emb.add_field(name="Why they want unbanned", value=data.get("why_unban", "?")[:1500])
+        emb.add_field(name="Staff action", value=f"`+unban {data.get('user_id', message.author.id)}`")
         emb.set_thumbnail(url=message.author.display_avatar.url)
         emb.set_footer(text="LEO'S EMPIRE • Appeal")
         await send_appeal(emb)
-        await message.channel.send(
-            "Your unban appeal was **sent** to LEO'S EMPIRE staff.\n"
-            "Please wait for a decision — do not spam appeals."
-        )
+        await message.channel.send("Your unban appeal was **sent** to staff.\nPlease wait for a decision.")
         return True
     return False
 
@@ -1528,10 +1413,7 @@ async def dm_unbanned(user):
     try:
         emb = discord.Embed(
             title="You have been unbanned",
-            description=(
-                "You have been **unbanned** from **LEO'S EMPIRE**.\n\n"
-                f"You can rejoin here: {SERVER_INVITE}"
-            ),
+            description="You have been **unbanned** from **LEO'S EMPIRE**.\n\nYou can rejoin here: https://discord.gg/GtRfjpAjsA",
             color=0x000000,
         )
         emb.set_footer(text="LEO'S EMPIRE")
@@ -1539,10 +1421,7 @@ async def dm_unbanned(user):
         return True
     except Exception:
         try:
-            await user.send(
-                f"You have been unbanned from **LEO'S EMPIRE**.\n"
-                f"Rejoin here: {SERVER_INVITE}"
-            )
+            await user.send("You have been unbanned.\nRejoin here: https://discord.gg/GtRfjpAjsA")
             return True
         except Exception:
             return False
@@ -1555,7 +1434,7 @@ def censor_blacklisted(text: str) -> str:
     for word in words:
         if not word:
             continue
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        pattern = re.compile(re.escape(word), re.IGNORE_CASE)
         def _blur(m, _w=word):
             w = m.group(0)
             if len(w) <= 2:
@@ -1582,10 +1461,7 @@ async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
     key = _temprole_key(guild_id, user_id, role_id)
     _temprole_tasks.pop(key, None)
     global temproles_data
-    temproles_data = [
-        e for e in temproles_data
-        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
-    ]
+    temproles_data = [e for e in temproles_data if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)]
     save_temproles()
     guild = bot.get_guild(guild_id)
     if not guild:
@@ -1604,8 +1480,8 @@ async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
     try:
         await member.remove_roles(role, reason="Temporary role expired")
         log = discord.Embed(title="Temp Role Expired", color=0x000000, timestamp=datetime.now())
-        log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
-        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=False)
+        log.add_field(name="User", value=f"{member} (`{member.id}`)")
+        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)")
         await send_log(log)
     except Exception:
         pass
@@ -1628,10 +1504,7 @@ def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: dateti
             return
     _temprole_tasks[key] = asyncio.create_task(_runner())
     global temproles_data
-    temproles_data = [
-        e for e in temproles_data
-        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
-    ]
+    temproles_data = [e for e in temproles_data if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)]
     temproles_data.append({
         "guild_id": guild_id,
         "user_id": user_id,
