@@ -75,8 +75,9 @@ ROLES = {
             1540425618620162139,  # Founder
             1512494871171043543,  # Owners
             1544803993480466563,  # Co owners
+            1546202087640272986,  # Co founder
         ],
-        "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners", "[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner"],
+        "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners", "[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner", "[ COF ] • Co Founder"],
     },
 }
 
@@ -113,8 +114,8 @@ os.makedirs("data", exist_ok=True)
 SANCTIONS_FILE = "data/sanctions.json"
 BLACKLIST_FILE = "data/blacklist.json"
 SNIPE_FILE = "data/snipe.json"
-ROLE_PERMS_FILE = "data/role_perms.json"  # saves role IDs so renames don't break perms
-TEMPROLES_FILE = "data/temproles.json"  # pending temporary roles
+ROLE_PERMS_FILE = "data/role_perms.json"
+TEMPROLES_FILE = "data/temproles.json"
 
 def load_json(path, default):
     if os.path.exists(path):
@@ -129,10 +130,10 @@ def save_json(path, data):
 sanctions_data = load_json(SANCTIONS_FILE, {})
 blacklist = load_json(BLACKLIST_FILE, [])
 snipe_data = load_json(SNIPE_FILE, {})
-clearing_channels = set()  # channel ids currently being +clear'd — skip snipe updates
-role_perms = load_json(ROLE_PERMS_FILE, {})  # {guild_id: {"1": [role_id, ...], ...}}
-temproles_data = load_json(TEMPROLES_FILE, [])  # list of pending temp roles
-_temprole_tasks = {}  # key -> asyncio.Task
+clearing_channels = set()
+role_perms = load_json(ROLE_PERMS_FILE, {})
+temproles_data = load_json(TEMPROLES_FILE, [])
+_temprole_tasks = {}
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
 def save_blacklist(): save_json(BLACKLIST_FILE, blacklist)
@@ -142,7 +143,6 @@ def save_temproles(): save_json(TEMPROLES_FILE, temproles_data)
 
 # ==================== HELPERS ====================
 def _match_role_exact(guild: discord.Guild, name: str):
-    """Match a role by exact name only (case-insensitive). No substring matching."""
     name = name.strip()
     if not name:
         return None
@@ -160,33 +160,23 @@ def _match_role_exact(guild: discord.Guild, name: str):
     return None
 
 def resolve_role_ids(guild: discord.Guild, force: bool = False) -> dict:
-    """
-    Map perm levels -> set of role IDs.
-    Prefer hardcoded IDs in ROLES (always correct).
-    Names are only a fallback if an ID is missing from the guild.
-    """
     gid = str(guild.id)
-    # Hardcoded IDs always win unless force re-check from names for missing ones
     mapping = {}
     used_ids = set()
     for level in sorted(ROLES.keys(), reverse=True):
         entry = ROLES[level]
         found = []
-        # New format: {"ids": [...], "names": [...]}
         if isinstance(entry, dict):
             for rid in entry.get("ids", []):
                 if rid not in used_ids:
-                    # Keep even if role missing (still in guild config)
                     found.append(rid)
                     used_ids.add(rid)
-            # Name fallback only for IDs not already set
             for name in entry.get("names", []):
                 role = _match_role_exact(guild, name)
                 if role and role.id not in used_ids:
                     found.append(role.id)
                     used_ids.add(role.id)
         else:
-            # Legacy list-of-names format
             for name in entry:
                 role = _match_role_exact(guild, name)
                 if role and role.id not in used_ids:
@@ -215,7 +205,6 @@ def has_perm(member: discord.Member, level: int) -> bool:
     return get_perm_level(member) >= level
 
 def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
-    """Lower ranks cannot moderate equal or higher ranks (role position + bot perm level)."""
     if moderator is None or target is None:
         return False
     if moderator.id == target.id:
@@ -228,427 +217,16 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
         return False
     if str(target.id) in SPECIAL_USERS:
         return False
-    # Bot staff perm levels (1-5): must be strictly higher
     mod_level = get_perm_level(moderator)
     target_level = get_perm_level(target)
     if target_level > 0 and mod_level <= target_level:
         return False
-    # Discord role hierarchy
     try:
         if moderator.top_role <= target.top_role:
             return False
     except Exception:
         return False
     return True
-
-
-async def send_log(embed: discord.Embed):
-    """Send an embed to the configured log channel."""
-    ch = bot.get_channel(LOG_CHANNEL_ID)
-    if ch is None:
-        try:
-            ch = await bot.fetch_channel(LOG_CHANNEL_ID)
-        except Exception:
-            return
-    try:
-        await ch.send(embed=embed)
-    except Exception:
-        pass
-
-async def send_appeal(embed: discord.Embed):
-    """Send an unban appeal embed to the appeals channel."""
-    ch = bot.get_channel(APPEAL_CHANNEL_ID)
-    if ch is None:
-        try:
-            ch = await bot.fetch_channel(APPEAL_CHANNEL_ID)
-        except Exception:
-            # fallback to main log
-            await send_log(embed)
-            return
-    try:
-        await ch.send(embed=embed)
-    except Exception:
-        await send_log(embed)
-
-
-def add_sanction(user_id: int, reason: str, mod_id: int):
-    uid = str(user_id)
-    if uid not in sanctions_data:
-        sanctions_data[uid] = []
-    entry = {
-        "id": len(sanctions_data[uid]) + 1,
-        "reason": reason,
-        "date": datetime.now().strftime("%d/%m/%Y"),
-        "moderator": str(mod_id)
-    }
-    sanctions_data[uid].append(entry)
-    save_sanctions()
-    return entry
-
-async def get_target(ctx: commands.Context, arg: str = None):
-    # 1) Explicit mentions first
-    if ctx.message.mentions:
-        return ctx.message.mentions[0]
-    # 2) Reply target (use cached resolved message when available)
-    if ctx.message.reference:
-        ref = ctx.message.reference
-        if ref.resolved and hasattr(ref.resolved, "author"):
-            return ref.resolved.author
-        if ref.message_id:
-            try:
-                msg = await ctx.channel.fetch_message(ref.message_id)
-                return msg.author
-            except Exception:
-                pass
-    # 3) Argument: ID or name
-    if arg:
-        arg = arg.strip()
-        # Raw ID
-        if arg.isdigit():
-            try:
-                return await bot.fetch_user(int(arg))
-            except Exception:
-                pass
-        # Mention string <@id> / <@!id>
-        if arg.startswith("<@") and arg.endswith(">"):
-            raw = arg.replace("<@", "").replace("!", "").replace(">", "")
-            if raw.isdigit():
-                try:
-                    return await bot.fetch_user(int(raw))
-                except Exception:
-                    pass
-        # Name search in guild
-        if ctx.guild:
-            name = arg.lower()
-            # exact match first
-            for m in ctx.guild.members:
-                if (
-                    m.name.lower() == name
-                    or (m.display_name and m.display_name.lower() == name)
-                    or str(m).lower() == name
-                ):
-                    return m
-            # partial match (starts with)
-            for m in ctx.guild.members:
-                if m.name.lower().startswith(name) or (m.display_name and m.display_name.lower().startswith(name)):
-                    return m
-    return None
-
-
-async def get_member(guild: discord.Guild, user):
-    """Get a Member from guild, trying cache then API fetch. Returns None if not in server."""
-    if user is None or guild is None:
-        return None
-    uid = getattr(user, "id", user)
-    try:
-        uid = int(uid)
-    except Exception:
-        return None
-    member = guild.get_member(uid)
-    if member:
-        return member
-    try:
-        return await guild.fetch_member(uid)
-    except Exception:
-        return None
-
-
-async def empty_result(ctx, text: str):
-    """Send a short 'nothing' message then delete both bot + user messages."""
-    try:
-        msg = await ctx.send(text)
-    except Exception:
-        msg = None
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-    if msg:
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-
-
-SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
-
-# Active unban appeal DM interviews: user_id -> {"step": str, "data": {}}
-appeal_sessions = {}
-
-async def dm_ban_appeal(user, reason: str = "No reason"):
-    """DM ban notice + how to appeal BEFORE they lose mutual servers. Returns True if sent."""
-    if user is None or getattr(user, "bot", False):
-        return False
-    try:
-        emb = discord.Embed(
-            title="You have been banned from LEO'S EMPIRE",
-            description=(
-                f"**Reason:** {reason}\n\n"
-                "You can **apply to get unbanned** by DMing me:\n"
-                "`+appeal`\n\n"
-                "I will ask for your user ID, ban reason, and why you want to be unbanned."
-            ),
-            color=0x000000,
-        )
-        emb.set_footer(text="LEO'S EMPIRE • Unban appeals")
-        await user.send(embed=emb)
-        return True
-    except Exception:
-        try:
-            await user.send(
-                f"You have been banned from **LEO'S EMPIRE**.\n"
-                f"Reason: {reason}\n\n"
-                f"To apply for an unban, DM me: `+appeal`"
-            )
-            return True
-        except Exception:
-            return False
-
-
-async def start_appeal_session(user):
-    """Begin multi-step appeal interview in DMs."""
-    appeal_sessions[user.id] = {"step": "user_id", "data": {}}
-    await user.send(
-        "**Unban appeal — LEO'S EMPIRE**\n\n"
-        "**Question 1/3:** What is your **Discord user ID**?\n"
-        "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
-        "Type `cancel` anytime to stop."
-    )
-
-
-async def continue_appeal_session(message) -> bool:
-    """Handle the next step of an appeal interview. Returns True if message was consumed."""
-    uid = message.author.id
-    session = appeal_sessions.get(uid)
-    if not session:
-        return False
-
-    text = (message.content or "").strip()
-    if not text:
-        return True
-
-    if text.lower() in ("cancel", "stop", "quit"):
-        appeal_sessions.pop(uid, None)
-        await message.channel.send("Appeal cancelled.")
-        return True
-
-    step = session["step"]
-    data = session["data"]
-
-    if step == "user_id":
-        raw = text.replace("<@", "").replace("!", "").replace(">", "").strip()
-        if not raw.isdigit() or len(raw) < 15:
-            await message.channel.send(
-                "That doesn't look like a user ID. Send numbers only (right-click profile → Copy User ID)."
-            )
-            return True
-        data["user_id"] = raw
-        session["step"] = "ban_reason"
-        await message.channel.send(
-            "**Question 2/3:** What was the **reason you got banned**?\n"
-            "(Write what you were banned for, as best you know.)"
-        )
-        return True
-
-    if step == "ban_reason":
-        if len(text) < 3:
-            await message.channel.send("Please write a bit more for the ban reason.")
-            return True
-        data["ban_reason"] = text[:1000]
-        session["step"] = "why_unban"
-        await message.channel.send(
-            "**Question 3/3:** **Why do you want to get unbanned?**\n"
-            "(Explain why staff should unban you.)"
-        )
-        return True
-
-    if step == "why_unban":
-        if len(text) < 3:
-            await message.channel.send("Please write a bit more about why you want to be unbanned.")
-            return True
-        data["why_unban"] = text[:1500]
-        appeal_sessions.pop(uid, None)
-
-        emb = discord.Embed(
-            title="Unban Appeal",
-            color=0x000000,
-            timestamp=datetime.now(),
-        )
-        emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)", inline=False)
-        emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`", inline=False)
-        emb.add_field(name="Reason they were banned", value=data.get("ban_reason", "?")[:1000], inline=False)
-        emb.add_field(name="Why they want unbanned", value=data.get("why_unban", "?")[:1500], inline=False)
-        emb.add_field(
-            name="Staff action",
-            value=f"`+unban {data.get('user_id', message.author.id)}`",
-            inline=False,
-        )
-        emb.set_thumbnail(url=message.author.display_avatar.url)
-        emb.set_footer(text="LEO'S EMPIRE • Appeal")
-        await send_appeal(emb)
-        await message.channel.send(
-            "Your unban appeal was **sent** to LEO'S EMPIRE staff.\n"
-            "Please wait for a decision — do not spam appeals."
-        )
-        return True
-
-    return False
-
-
-async def dm_unbanned(user):
-    """Try to DM a user that they were unbanned. May fail if no mutual server / DMs closed."""
-    if user is None or getattr(user, "bot", False):
-        return False
-    try:
-        emb = discord.Embed(
-            title="You have been unbanned",
-            description=(
-                "You have been **unbanned** from **LEO'S EMPIRE**.\n\n"
-                f"You can rejoin here: {SERVER_INVITE}"
-            ),
-            color=0x000000,
-        )
-        emb.set_footer(text="LEO'S EMPIRE")
-        await user.send(embed=emb)
-        return True
-    except Exception:
-        try:
-            await user.send(
-                f"You have been unbanned from **LEO'S EMPIRE**.\n"
-                f"Rejoin here: {SERVER_INVITE}"
-            )
-            return True
-        except Exception:
-            return False
-
-
-def censor_blacklisted(text: str) -> str:
-    """Replace blacklisted words with blurred/censored versions for +snipe display."""
-    if not text:
-        return text
-    out = text
-    words = sorted(BLACKLISTED_WORDS, key=len, reverse=True)
-    for word in words:
-        if not word:
-            continue
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
-        def _blur(m, _w=word):
-            w = m.group(0)
-            if len(w) <= 2:
-                return "*" * len(w)
-            return w[0] + ("•" * (len(w) - 2)) + w[-1]
-        out = pattern.sub(_blur, out)
-    return out
-
-def parse_duration(text: str):
-    match = re.match(r"^(\d+)([smhd])$", text.lower())
-    if not match:
-        return None
-    num, unit = int(match.group(1)), match.group(2)
-    if unit == "s": return timedelta(seconds=num)
-    if unit == "m": return timedelta(minutes=num)
-    if unit == "h": return timedelta(hours=num)
-    if unit == "d": return timedelta(days=num)
-    return None
-
-
-def _temprole_key(guild_id: int, user_id: int, role_id: int) -> str:
-    return f"{guild_id}:{user_id}:{role_id}"
-
-
-async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
-    """Remove a temporary role when time is up."""
-    key = _temprole_key(guild_id, user_id, role_id)
-    _temprole_tasks.pop(key, None)
-    # Drop from saved list
-    global temproles_data
-    temproles_data = [
-        e for e in temproles_data
-        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
-    ]
-    save_temproles()
-
-    guild = bot.get_guild(guild_id)
-    if not guild:
-        return
-    member = guild.get_member(user_id)
-    if not member:
-        try:
-            member = await guild.fetch_member(user_id)
-        except Exception:
-            return
-    role = guild.get_role(role_id)
-    if not role:
-        return
-    if role not in member.roles:
-        return
-    try:
-        await member.remove_roles(role, reason="Temporary role expired")
-        log = discord.Embed(title="Temp Role Expired", color=0x000000, timestamp=datetime.now())
-        log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
-        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=False)
-        await send_log(log)
-    except Exception:
-        pass
-
-
-def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: datetime):
-    """Schedule role removal at ends_at (UTC). Replaces any existing timer for same role/user."""
-    import asyncio
-    key = _temprole_key(guild_id, user_id, role_id)
-    # Cancel old task
-    old = _temprole_tasks.pop(key, None)
-    if old and not old.done():
-        old.cancel()
-
-    now = datetime.now(timezone.utc)
-    if ends_at.tzinfo is None:
-        ends_at = ends_at.replace(tzinfo=timezone.utc)
-    delay = max(0, (ends_at - now).total_seconds())
-
-    async def _runner():
-        try:
-            await asyncio.sleep(delay)
-            await _remove_temprole(guild_id, user_id, role_id)
-        except asyncio.CancelledError:
-            return
-
-    _temprole_tasks[key] = asyncio.create_task(_runner())
-
-    # Upsert in saved list
-    global temproles_data
-    temproles_data = [
-        e for e in temproles_data
-        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
-    ]
-    temproles_data.append({
-        "guild_id": guild_id,
-        "user_id": user_id,
-        "role_id": role_id,
-        "ends_at": ends_at.isoformat(),
-    })
-    save_temproles()
-
-
-async def restore_temproles():
-    """On startup: remove expired roles and reschedule the rest."""
-    import asyncio
-    now = datetime.now(timezone.utc)
-    pending = list(temproles_data)
-    for entry in pending:
-        try:
-            gid = int(entry["guild_id"])
-            uid = int(entry["user_id"])
-            rid = int(entry["role_id"])
-            ends = datetime.fromisoformat(entry["ends_at"])
-            if ends.tzinfo is None:
-                ends = ends.replace(tzinfo=timezone.utc)
-            if ends <= now:
-                await _remove_temprole(gid, uid, rid)
-            else:
-                schedule_temprole(gid, uid, rid, ends)
-        except Exception as e:
-            print(f"temprole restore error: {e}")
 
 # ==================== EVENTS ====================
 @bot.event
@@ -673,27 +251,21 @@ async def on_ready():
     except Exception as e:
         print(f"Temp role restore failed: {e}")
 
+# ==================== EVENTS (all the rest) ====================
 @bot.event
 async def on_message_delete(message):
     if message.author.bot or not message.guild:
         return
-    # Ignore deletes caused by +clear (bulk or single)
     if message.channel.id in clearing_channels:
         return
-    # Ignore the +clear command itself so it never gets sniped
     if message.content and message.content.startswith(f"{PREFIX}clear"):
         return
-    # Save text + image/attachments so +snipe can show them
     attachments = []
     image_url = None
     for att in message.attachments:
         attachments.append({"url": att.url, "filename": att.filename, "content_type": att.content_type or ""})
-        if image_url is None and (
-            (att.content_type and att.content_type.startswith("image/"))
-            or att.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
-        ):
+        if image_url is None and (att.content_type and att.content_type.startswith("image/") or att.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))):
             image_url = att.url
-    # Stickers (optional display as name)
     stickers = [s.name for s in getattr(message, "stickers", [])] if getattr(message, "stickers", None) else []
     content = message.content or ""
     if not content and not attachments and not stickers:
@@ -715,16 +287,9 @@ async def on_message_delete(message):
 
 @bot.event
 async def on_bulk_message_delete(messages):
-    # Bulk deletes from +clear/purge must NOT change snipe.
-    # Keep the last normally-deleted message so +snipe still works after a clear.
     return
 
 async def filter_bad_content(message) -> bool:
-    """
-    Delete message if it has scam/blacklist words.
-    Warns the user, logs, adds sanction, and deletes the warn after 3 seconds.
-    Returns True if the message was filtered (caller should stop processing).
-    """
     if not message.guild or message.author.bot:
         return False
     content = message.content or ""
@@ -745,7 +310,6 @@ async def filter_bad_content(message) -> bool:
         except Exception:
             pass
 
-    # Scam / nitro bait
     for word in SCAM_WORDS:
         if word in content_lower:
             try:
@@ -761,7 +325,6 @@ async def filter_bad_content(message) -> bool:
             await send_log(emb)
             return True
 
-    # Normal blacklisted words
     for word in BLACKLISTED_WORDS:
         if word in content_lower:
             try:
@@ -779,33 +342,24 @@ async def filter_bad_content(message) -> bool:
 
     return False
 
-
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-
-    # Mention reply
     if bot.user.mentioned_in(message) and not message.mention_everyone:
         content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
         if len(content) < 3:
             await message.channel.send(f"My prefix on this server is: `{PREFIX}`")
             return
-
     if await filter_bad_content(message):
         return
-
-    # Multi-step unban appeal interview (mainly DMs)
     if message.author.id in appeal_sessions:
         if await continue_appeal_session(message):
             return
-
     await bot.process_commands(message)
-
 
 @bot.event
 async def on_message_edit(before, after):
-    """If someone edits a message to include a blacklisted word, still filter it."""
     if after.author.bot or not after.guild:
         return
     if (before.content or "") == (after.content or ""):
@@ -820,8 +374,6 @@ async def on_member_join(member):
         except Exception:
             pass
         return
-
-    # Welcome message
     try:
         ch = bot.get_channel(WELCOME_CHANNEL_ID)
         if ch is None:
@@ -841,22 +393,17 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    """Log manual (and any) timeouts into sanctions so +sanctions shows them."""
     try:
         before_to = before.timed_out_until
         after_to = after.timed_out_until
     except Exception:
         return
-
-    # Timeout applied or extended
     if after_to is not None and before_to != after_to:
-        # Skip if this bot just did +tempmute (already logged there)
         mod_id = bot.user.id if bot.user else 0
         reason = "timeout"
         try:
             async for entry in after.guild.audit_logs(limit=6, action=discord.AuditLogAction.member_update):
                 if entry.target and entry.target.id == after.id:
-                    # recent enough (within 20s)
                     if (datetime.now(timezone.utc) - entry.created_at).total_seconds() < 20:
                         if entry.user:
                             mod_id = entry.user.id
@@ -865,12 +412,8 @@ async def on_member_update(before: discord.Member, after: discord.Member):
                         break
         except Exception:
             pass
-
-        # If the bot applied it, +tempmute already added a sanction
         if bot.user and mod_id == bot.user.id:
             return
-
-        # Format remaining duration
         try:
             now = datetime.now(timezone.utc)
             until = after_to if after_to.tzinfo else after_to.replace(tzinfo=timezone.utc)
@@ -885,12 +428,10 @@ async def on_member_update(before: discord.Member, after: discord.Member):
                 dur = f"{secs}s"
         except Exception:
             dur = "?"
-
         text = f"timeout {dur}"
         if reason and reason != "timeout":
             text = f"timeout {dur} - {reason}"
         add_sanction(after.id, text, mod_id)
-
         log = discord.Embed(title="Timeout (manual/other)", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{after} (`{after.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"<@{mod_id}> (`{mod_id}`)", inline=False)
@@ -904,7 +445,6 @@ async def on_command_error(ctx, error):
         return
     if isinstance(error, commands.MissingPermissions):
         return
-    # Bad args / missing required args → "invalid <command>"
     if isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument, commands.TooManyArguments, commands.UserInputError)):
         name = ctx.command.name if ctx.command else "command"
         try:
@@ -912,7 +452,6 @@ async def on_command_error(ctx, error):
         except Exception:
             pass
         return
-    # Silent for other errors (no spam)
     return
 
 # ==================== COMMANDS ====================
@@ -927,23 +466,18 @@ async def perms(ctx):
     for level in sorted(ROLES.keys()):
         mentions = []
         seen = set()
-        # Only show roles that still exist in the server
         for rid in cache.get(level, set()):
             if rid in seen:
                 continue
             role = ctx.guild.get_role(rid)
             if not role:
-                continue  # deleted role — skip
+                continue
             seen.add(rid)
             mentions.append(role.mention)
-        # Also try name fallback for any configured names not already shown
         entry = ROLES.get(level, {})
         names = entry.get("names", []) if isinstance(entry, dict) else []
         for name in names:
-            role = discord.utils.find(
-                lambda r, n=name: r.name == n or r.name.lower() == n.lower(),
-                ctx.guild.roles
-            )
+            role = discord.utils.find(lambda r, n=name: r.name == n or r.name.lower() == n.lower(), ctx.guild.roles)
             if role and role.id not in seen:
                 seen.add(role.id)
                 mentions.append(role.mention)
@@ -956,7 +490,6 @@ async def perms(ctx):
 
 @bot.command()
 async def syncroles(ctx):
-    """Re-scan role names and update saved role IDs (Perm 5 / special only)."""
     if not has_perm(ctx.author, 5) and str(ctx.author.id) not in SPECIAL_USERS:
         return
     cache = resolve_role_ids(ctx.guild, force=True)
@@ -978,7 +511,6 @@ async def syncroles(ctx):
 
 @bot.command()
 async def snipe(ctx):
-    # Available to everyone (no staff perm required)
     data = snipe_data.get(str(ctx.channel.id))
     if not data:
         return await empty_result(ctx, "Nothing to snipe.")
@@ -997,15 +529,11 @@ async def snipe(ctx):
         except:
             pass
     emb.add_field(name="Deleted", value=deleted_text, inline=True)
-    # Show deleted image in the embed
     if data.get("image_url"):
         emb.set_image(url=data["image_url"])
-    # Non-image attachments as links
     other = []
     for att in data.get("attachments") or []:
-        is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(
-            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
-        )
+        is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")))
         if not is_img and att.get("url"):
             other.append(f"[{att.get('filename', 'file')}]({att['url']})")
     if other:
@@ -1015,12 +543,9 @@ async def snipe(ctx):
 
 @bot.command(aliases=["warns"])
 async def sanctions(ctx, target: str = None):
-    """Works for members, left users, and banned users (lookup by ID)."""
     try:
         user = None
         uid = None
-
-        # Prefer raw user ID so banned people still resolve
         if target:
             raw = target.strip().replace("<@", "").replace("!", "").replace(">", "")
             if raw.isdigit():
@@ -1038,21 +563,16 @@ async def sanctions(ctx, target: str = None):
             if user is None:
                 user = ctx.author
             uid = str(user.id)
-
         if not uid:
             return await ctx.send("invalid sanctions")
-
         lst = sanctions_data.get(str(uid), [])
         display = str(user) if user else f"User `{uid}`"
         if not lst:
             return await empty_result(ctx, f"**{display}** has no sanctions.")
-
-        # Newest sanctions at the top (keep original IDs)
         ordered = list(reversed(lst))
         text = "\n".join(f"{s['id']} - {s['date']}: {s['reason']}" for s in ordered)
         if len(text) > 4000:
             text = text[:4000] + "\n..."
-
         emb = discord.Embed(description=text, color=0x000001)
         if user is not None:
             avatar = getattr(getattr(user, "display_avatar", None), "url", None)
@@ -1070,20 +590,12 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
         return
     if not has_perm(ctx.author, 2):
         return
-
     user = None
     number = None
-
-    # User from mention or reply
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
     elif ctx.message.reference:
         user = await get_target(ctx, None)
-
-    # Parse args:
-    # +del sanction 1              (reply/mention provides user, arg1 = number)
-    # +del sanction @user 1        (arg1 = user, arg2 = number)
-    # +del sanction 123456789 1    (arg1 = id, arg2 = number)
     if arg1 and arg1.isdigit() and arg2 is None:
         number = arg1
     elif arg1 is not None and arg2 is not None and arg2.isdigit():
@@ -1094,10 +606,8 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
         if user is None:
             user = await get_target(ctx, arg1)
         number = arg2
-
     if not user or not number or not str(number).isdigit():
         return await ctx.send("invalid del")
-
     uid = str(user.id)
     num = int(number)
     if uid not in sanctions_data or not any(s["id"] == num for s in sanctions_data[uid]):
@@ -1118,10 +628,8 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
 async def warn(ctx, *, args: str = None):
     if not has_perm(ctx.author, 1):
         return
-
     user = None
     reason = "No reason provided"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -1140,14 +648,11 @@ async def warn(ctx, *, args: str = None):
             reason = parts[1]
         elif not user:
             return await ctx.send("invalid warn")
-
     if not user:
         return await ctx.send("invalid warn")
-
     target_member = await get_member(ctx.guild, user)
     if target_member and not can_moderate(ctx.author, target_member):
         return await ctx.send("You can't warn someone with an equal or higher rank.")
-
     add_sanction(user.id, reason, ctx.author.id)
     emb = discord.Embed(title="warn", description=f"{user.mention} was warned\nreason: {reason}", color=0x000000)
     await ctx.send(embed=emb)
@@ -1181,11 +686,9 @@ async def tempmute(ctx, *, args: str = None):
         return
     if not args:
         return await ctx.send("invalid tempmute")
-
     user = None
     duration = None
     reason = "No reason"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         rest = args
@@ -1209,10 +712,8 @@ async def tempmute(ctx, *, args: str = None):
         user = await get_target(ctx, parts[0])
         duration = parts[1] if len(parts) > 1 else None
         reason = parts[2] if len(parts) > 2 else "No reason"
-
     if not user or not duration:
         return await ctx.send("invalid tempmute")
-
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid tempmute")
@@ -1220,14 +721,11 @@ async def tempmute(ctx, *, args: str = None):
         return await ctx.send("invalid tempmute")
     if not can_moderate(ctx.author, member):
         return await ctx.send("You can't tempmute someone with an equal or higher rank.")
-
     delta = parse_duration(duration)
     if not delta:
         return await ctx.send("Invalid duration (examples: `30s` `10m` `1h` `7d`)")
-    # Discord max timeout is 28 days
     if delta.total_seconds() > 28 * 86400:
         return await ctx.send("Max timeout is 28 days.")
-
     try:
         await member.timeout(delta, reason=reason)
         add_sanction(user.id, f"timeout {duration} - {reason}", ctx.author.id)
@@ -1272,10 +770,7 @@ async def mutelist(ctx):
     muted = [m for m in ctx.guild.members if m.is_timed_out() and m.timed_out_until]
     if not muted:
         return await empty_result(ctx, "There are no muted members.")
-
-    # Sort by longest remaining timeout first
     muted.sort(key=lambda m: m.timed_out_until, reverse=True)
-
     def format_remaining(until):
         now = datetime.now(timezone.utc)
         if until.tzinfo is None:
@@ -1288,19 +783,15 @@ async def mutelist(ctx):
         hours = (total_seconds % 86400) // 3600
         minutes = (total_seconds % 3600) // 60
         return f"{days}.0 days {hours}.0 hours and {minutes}.0 minutes"
-
     lines = []
-    # Discord embed description limit ~4096 chars; keep a safe number of lines
     max_show = 40
     for m in muted[:max_show]:
         remaining = format_remaining(m.timed_out_until)
         lines.append(f"{m.mention} : {remaining}")
-
     description = "**Timeouts**\n" + "\n".join(lines)
     not_shown = len(muted) - max_show
     if not_shown > 0:
         description += f"\n{not_shown} not showed"
-
     emb = discord.Embed(
         title="Current mutes",
         description=description,
@@ -1310,13 +801,10 @@ async def mutelist(ctx):
 
 @bot.command()
 async def ban(ctx, *, args: str = None):
-    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
-
     user = None
     reason = "No reason"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -1334,15 +822,12 @@ async def ban(ctx, *, args: str = None):
         if user and len(parts) > 1:
             reason = parts[1]
         elif not user:
-            # maybe entire args is not a user — invalid
             pass
-
     if not user:
         return await ctx.send("invalid ban")
     if user.id == ctx.author.id:
         return await ctx.send("invalid ban")
     try:
-        # DM appeal info before ban (while mutual server still exists)
         dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
         if reason and reason != "No reason":
@@ -1360,11 +845,6 @@ async def ban(ctx, *, args: str = None):
 
 @bot.command()
 async def appeal(ctx, *, _ignored: str = None):
-    """
-    Start an unban appeal interview (best in DMs).
-    Asks: user ID, ban reason, why they want unbanned.
-    """
-    # Prefer DMs so banned users can still apply
     dest = ctx.author
     try:
         if ctx.guild is not None:
@@ -1374,7 +854,6 @@ async def appeal(ctx, *, _ignored: str = None):
         await ctx.send(
             "I couldn't DM you. Open your DMs (Privacy Settings → Allow DMs from server members) and try `+appeal` again in my DMs."
         )
-
 
 @bot.command()
 async def unban(ctx, user_id: str = None):
@@ -1398,13 +877,10 @@ async def unban(ctx, user_id: str = None):
 
 @bot.command()
 async def kick(ctx, *, args: str = None):
-    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in KICK_COMMAND_USERS:
         return
-
     user = None
     reason = "No reason"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -1421,7 +897,6 @@ async def kick(ctx, *, args: str = None):
         user = await get_target(ctx, parts[0])
         if user and len(parts) > 1:
             reason = parts[1]
-
     if not user:
         return await ctx.send("invalid kick")
     if user.id == ctx.author.id:
@@ -1445,42 +920,26 @@ async def kick(ctx, *, args: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
-
 @bot.command()
 async def clear(ctx, *args):
-    """
-    +clear [amount]              – delete last N messages (default 10, max 100)
-    +clear @user [amount]        – delete that user's messages (scans recent history)
-    +clear <user_id> [amount]    – same, works even if they left the server
-    Reply + +clear [amount]      – target the replied user
-
-    Discord only allows bulk-delete of messages newer than 14 days.
-    When a user is targeted, the bot scans further back (up to ~1000 msgs)
-    and removes only their messages within that window.
-    """
     if not has_perm(ctx.author, 4):
         return
-
     amount = 10
     target = None
-
-    # 1) Mentions
     if ctx.message.mentions:
         target = ctx.message.mentions[0]
         for a in reversed(args):
             if str(a).isdigit():
                 amount = int(a)
                 break
-    # 2) Reply
     elif ctx.message.reference:
         target = await get_target(ctx, None)
         if args and str(args[0]).isdigit():
             amount = int(args[0])
-    # 3) Args: amount only, or user_id [amount]
     elif args:
         if len(args) == 1 and str(args[0]).isdigit():
             num = int(args[0])
-            if num > 10_000_000_000_000_000:  # likely a user ID
+            if num > 10_000_000_000_000_000:
                 try:
                     target = await bot.fetch_user(num)
                     amount = 100
@@ -1502,108 +961,79 @@ async def clear(ctx, *args):
                 amount = int(args[1])
             elif target:
                 amount = 100
-
     if target:
         amount = max(1, min(amount, 1000))
     else:
         amount = max(1, min(amount, 100))
-
     def check(m):
-        # Always delete the +clear command message itself
         if m.id == ctx.message.id:
             return True
         if target is None:
             return True
         return m.author.id == target.id
-
-    # Silent, no bot-log, no confirmation. One bulk delete including the +clear message.
     clearing_channels.add(ctx.channel.id)
     try:
         if target is None:
-            # Fast path: delete last N messages + the command in a single purge
             await ctx.channel.purge(limit=amount + 1, check=check)
         else:
-            # User-targeted: scan recent history and remove only their msgs (+ command)
             left = amount
             while left > 0:
                 batch = min(100, left + 1)
                 purged = await ctx.channel.purge(limit=batch, check=check)
-                # Count only target messages toward the limit (command doesn't count)
                 removed = sum(1 for m in purged if m.id != ctx.message.id)
                 left -= max(removed, 1)
                 if len(purged) < batch:
                     break
     except Exception:
-        # Fallback: still try to remove the command message
         try:
             await ctx.message.delete()
         except Exception:
             pass
     finally:
         clearing_channels.discard(ctx.channel.id)
-    # No log, no reply — stays out of channel and bot log channel
 
 def find_role(guild, role_query: str):
-    """Find a role by ID, mention, exact name, or partial name (e.g. 'manager' -> Manager)."""
     if not role_query:
         return None
     q = role_query.strip()
-    # Mention <@&id>
     if q.startswith("<@&") and q.endswith(">"):
         rid = q[3:-1]
         if rid.isdigit():
             return guild.get_role(int(rid))
-    # By ID
     if q.isdigit():
         role = guild.get_role(int(q))
         if role:
             return role
     q_lower = q.lower()
-    # Exact name (case-insensitive)
     role = discord.utils.find(lambda r: r.name.lower() == q_lower, guild.roles)
     if role:
         return role
-    # Starts with query (e.g. "head" -> "Head Staff")
     starts = [r for r in guild.roles if r.name.lower().startswith(q_lower) and r.name != "@everyone"]
     if len(starts) == 1:
         return starts[0]
     if len(starts) > 1:
-        # Prefer shortest name
         starts.sort(key=lambda r: len(r.name))
         return starts[0]
-    # Contains query (e.g. "manager" in "Server-Manager", "staff" in "Head Staff")
     contains = [r for r in guild.roles if q_lower in r.name.lower() and r.name != "@everyone"]
     if len(contains) == 1:
         return contains[0]
     if len(contains) > 1:
-        # Prefer shortest name so "mod" prefers "Moderator" over longer names when possible
         contains.sort(key=lambda r: (len(r.name), r.name.lower()))
         return contains[0]
     return None
 
 @bot.command()
 async def temprole(ctx, *, args: str = None):
-    """
-    +temprole @user 30s Role Name
-    +temprole @user Role Name 30s
-    +temprole 30s Role Name          (yourself)
-    +temprole Role Name 30s          (yourself)
-    +temprole 30s Role Name          (reply = target)
-    Duration: any amount (30s 10m 2h 7d 100d ...)
-    """
     if not has_perm(ctx.author, 5):
         return
     if not args:
         return await ctx.send("invalid temprole")
-
-    # Strip mentions from the text used for duration/role parsing
     rest = args
     user = None
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         for m in ctx.message.mentions:
             rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
-    # Reply to a message → target that message's author
     if user is None and ctx.message.reference:
         ref = ctx.message.reference
         if ref.resolved and hasattr(ref.resolved, "author"):
@@ -1614,20 +1044,14 @@ async def temprole(ctx, *, args: str = None):
                 user = ref_msg.author
             except Exception:
                 user = await get_target(ctx, None)
-
     tokens = rest.strip().split()
     if not tokens:
         return await ctx.send("invalid temprole")
-
-    # Optional leading user ID (only if no mention/reply yet)
     if user is None and tokens[0].isdigit() and len(tokens[0]) >= 15:
         user = await get_target(ctx, tokens[0])
         tokens = tokens[1:]
-
     if not tokens:
         return await ctx.send("invalid temprole")
-
-    # Find duration token (30s / 10m / 2h / 7d) — can be first or last
     duration = None
     duration_idx = None
     for i, tok in enumerate(tokens):
@@ -1635,27 +1059,20 @@ async def temprole(ctx, *, args: str = None):
             duration = tok
             duration_idx = i
             break
-
     if duration is None:
         return await ctx.send("invalid temprole")
-
     role_tokens = tokens[:duration_idx] + tokens[duration_idx + 1:]
     role_name = " ".join(role_tokens).strip()
     if not role_name:
         return await ctx.send("invalid temprole")
-
-    # No user mentioned/replied → apply to yourself
     if user is None:
         user = ctx.author
-
     delta = parse_duration(duration)
     if not delta or delta.total_seconds() < 1:
         return await ctx.send("invalid temprole")
-
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid temprole")
-
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid temprole")
@@ -1663,13 +1080,11 @@ async def temprole(ctx, *, args: str = None):
         return await ctx.send("invalid temprole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid temprole")
-
     try:
         if role not in member.roles:
             await member.add_roles(role, reason=f"Temp role {duration} by {ctx.author}")
         ends_at = datetime.now(timezone.utc) + delta
         schedule_temprole(ctx.guild.id, member.id, role.id, ends_at)
-        # Role name only — does not ping the role
         await ctx.send(
             f"Gave **{role.name}** to {member.mention} for **{duration}** "
             f"(removes {discord.utils.format_dt(ends_at, 'R')})",
@@ -1684,49 +1099,39 @@ async def temprole(ctx, *, args: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
-
 @bot.command()
 async def addrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, 3):
         return
     if not args:
         return await ctx.send("invalid addrole")
-
     user = None
     role_name = None
-
-    # Mention = target user; everything else is the role name
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         role_name = args
         for m in ctx.message.mentions:
             role_name = role_name.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
         role_name = role_name.strip()
-    # Real Discord reply (not just a quote)
     elif ctx.message.reference:
         user = await get_target(ctx, None)
         role_name = args.strip()
     else:
         parts = args.split(None, 1)
-        # +addrole <user_id> <role name...>
         if len(parts) >= 1 and parts[0].isdigit() and ctx.guild and ctx.guild.get_member(int(parts[0])):
             user = await get_target(ctx, parts[0])
             role_name = parts[1] if len(parts) > 1 else None
-        # +addrole <role_id only>  → role id applied to self
         elif len(parts) == 1 and parts[0].isdigit() and find_role(ctx.guild, parts[0]):
             user = ctx.author
             role_name = parts[0]
         else:
             user = ctx.author
             role_name = args.strip()
-
     if not user or not role_name:
         return await ctx.send("invalid addrole")
-
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid addrole")
-
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid addrole")
@@ -1748,10 +1153,8 @@ async def delrole(ctx, *, args: str = None):
         return
     if not args:
         return await ctx.send("invalid delrole")
-
     user = None
     role_name = None
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         role_name = args
@@ -1772,14 +1175,11 @@ async def delrole(ctx, *, args: str = None):
         else:
             user = ctx.author
             role_name = args.strip()
-
     if not user or not role_name:
         return await ctx.send("invalid delrole")
-
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid delrole")
-
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid delrole")
@@ -1820,7 +1220,6 @@ async def derank(ctx, target: str = None):
 async def create(ctx, emoji: str = None, *, name: str = None):
     if not has_perm(ctx.author, 4):
         return
-    # Support both +create <name> and +create <emoji> <name>
     if emoji and not name:
         name = emoji
         emoji = None
@@ -1865,13 +1264,10 @@ async def rolemembers(ctx, *, role_query: str = None):
 
 @bot.command()
 async def bl(ctx, *, args: str = None):
-    """Reason is optional. Works with reply, mention, or user ID."""
     if str(ctx.author.id) not in BL_COMMAND_USERS:
         return
-
     user = None
     reason = "No reason"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -1888,7 +1284,6 @@ async def bl(ctx, *, args: str = None):
         user = await get_target(ctx, parts[0])
         if user and len(parts) > 1:
             reason = parts[1]
-
     if not user:
         return await ctx.send("invalid bl")
     if user.id == ctx.author.id:
@@ -1914,7 +1309,6 @@ async def bl(ctx, *, args: str = None):
     log.add_field(name="Reason", value=reason, inline=False)
     log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
     await send_log(log)
-
 
 @bot.command()
 async def unbl(ctx, user_id: str = None):
@@ -2017,7 +1411,366 @@ async def help(ctx):
     emb.set_footer(text="Bot maker: teix • Founder: LEO")
     await ctx.send(embed=emb)
 
-# ==================== KEEP-ALIVE (for hosts that sleep) ====================
+# ==================== APPEAL SYSTEM ====================
+async def dm_ban_appeal(user, reason: str = "No reason"):
+    if user is None or getattr(user, "bot", False):
+        return False
+    try:
+        emb = discord.Embed(
+            title="You have been banned from LEO'S EMPIRE",
+            description=(
+                f"**Reason:** {reason}\n\n"
+                "You can **apply to get unbanned** by DMing me:\n"
+                "`+appeal`\n\n"
+                "I will ask for your user ID, ban reason, and why you want to be unbanned."
+            ),
+            color=0x000000,
+        )
+        emb.set_footer(text="LEO'S EMPIRE • Unban appeals")
+        await user.send(embed=emb)
+        return True
+    except Exception:
+        try:
+            await user.send(
+                f"You have been banned from **LEO'S EMPIRE**.\n"
+                f"Reason: {reason}\n\n"
+                f"To apply for an unban, DM me: `+appeal`"
+            )
+            return True
+        except Exception:
+            return False
+
+appeal_sessions = {}
+
+async def start_appeal_session(user):
+    appeal_sessions[user.id] = {"step": "user_id", "data": {}}
+    await user.send(
+        "**Unban appeal — LEO'S EMPIRE**\n\n"
+        "**Question 1/3:** What is your **Discord user ID**?\n"
+        "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
+        "Type `cancel` anytime to stop."
+    )
+
+async def continue_appeal_session(message) -> bool:
+    uid = message.author.id
+    session = appeal_sessions.get(uid)
+    if not session:
+        return False
+    text = (message.content or "").strip()
+    if not text:
+        return True
+    if text.lower() in ("cancel", "stop", "quit"):
+        appeal_sessions.pop(uid, None)
+        await message.channel.send("Appeal cancelled.")
+        return True
+    step = session["step"]
+    data = session["data"]
+    if step == "user_id":
+        raw = text.replace("<@", "").replace("!", "").replace(">", "").strip()
+        if not raw.isdigit() or len(raw) < 15:
+            await message.channel.send(
+                "That doesn't look like a user ID. Send numbers only (right-click profile → Copy User ID)."
+            )
+            return True
+        data["user_id"] = raw
+        session["step"] = "ban_reason"
+        await message.channel.send(
+            "**Question 2/3:** What was the **reason you got banned**?\n"
+            "(Write what you were banned for, as best you know.)"
+        )
+        return True
+    if step == "ban_reason":
+        if len(text) < 3:
+            await message.channel.send("Please write a bit more for the ban reason.")
+            return True
+        data["ban_reason"] = text[:1000]
+        session["step"] = "why_unban"
+        await message.channel.send(
+            "**Question 3/3:** **Why do you want to get unbanned?**\n"
+            "(Explain why staff should unban you.)"
+        )
+        return True
+    if step == "why_unban":
+        if len(text) < 3:
+            await message.channel.send("Please write a bit more about why you want to be unbanned.")
+            return True
+        data["why_unban"] = text[:1500]
+        appeal_sessions.pop(uid, None)
+        emb = discord.Embed(
+            title="Unban Appeal",
+            color=0x000000,
+            timestamp=datetime.now(),
+        )
+        emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)", inline=False)
+        emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`", inline=False)
+        emb.add_field(name="Reason they were banned", value=data.get("ban_reason", "?")[:1000], inline=False)
+        emb.add_field(name="Why they want unbanned", value=data.get("why_unban", "?")[:1500], inline=False)
+        emb.add_field(
+            name="Staff action",
+            value=f"`+unban {data.get('user_id', message.author.id)}`",
+            inline=False,
+        )
+        emb.set_thumbnail(url=message.author.display_avatar.url)
+        emb.set_footer(text="LEO'S EMPIRE • Appeal")
+        await send_appeal(emb)
+        await message.channel.send(
+            "Your unban appeal was **sent** to LEO'S EMPIRE staff.\n"
+            "Please wait for a decision — do not spam appeals."
+        )
+        return True
+    return False
+
+async def dm_unbanned(user):
+    if user is None or getattr(user, "bot", False):
+        return False
+    try:
+        emb = discord.Embed(
+            title="You have been unbanned",
+            description=(
+                "You have been **unbanned** from **LEO'S EMPIRE**.\n\n"
+                f"You can rejoin here: {SERVER_INVITE}"
+            ),
+            color=0x000000,
+        )
+        emb.set_footer(text="LEO'S EMPIRE")
+        await user.send(embed=emb)
+        return True
+    except Exception:
+        try:
+            await user.send(
+                f"You have been unbanned from **LEO'S EMPIRE**.\n"
+                f"Rejoin here: {SERVER_INVITE}"
+            )
+            return True
+        except Exception:
+            return False
+
+def censor_blacklisted(text: str) -> str:
+    if not text:
+        return text
+    out = text
+    words = sorted(BLACKLISTED_WORDS, key=len, reverse=True)
+    for word in words:
+        if not word:
+            continue
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        def _blur(m, _w=word):
+            w = m.group(0)
+            if len(w) <= 2:
+                return "*" * len(w)
+            return w[0] + ("•" * (len(w) - 2)) + w[-1]
+        out = pattern.sub(_blur, out)
+    return out
+
+def parse_duration(text: str):
+    match = re.match(r"^(\d+)([smhd])$", text.lower())
+    if not match:
+        return None
+    num, unit = int(match.group(1)), match.group(2)
+    if unit == "s": return timedelta(seconds=num)
+    if unit == "m": return timedelta(minutes=num)
+    if unit == "h": return timedelta(hours=num)
+    if unit == "d": return timedelta(days=num)
+    return None
+
+def _temprole_key(guild_id: int, user_id: int, role_id: int) -> str:
+    return f"{guild_id}:{user_id}:{role_id}"
+
+async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
+    key = _temprole_key(guild_id, user_id, role_id)
+    _temprole_tasks.pop(key, None)
+    global temproles_data
+    temproles_data = [
+        e for e in temproles_data
+        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
+    ]
+    save_temproles()
+    guild = bot.get_guild(guild_id)
+    if not guild:
+        return
+    member = guild.get_member(user_id)
+    if not member:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            return
+    role = guild.get_role(role_id)
+    if not role:
+        return
+    if role not in member.roles:
+        return
+    try:
+        await member.remove_roles(role, reason="Temporary role expired")
+        log = discord.Embed(title="Temp Role Expired", color=0x000000, timestamp=datetime.now())
+        log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
+        log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=False)
+        await send_log(log)
+    except Exception:
+        pass
+
+def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: datetime):
+    import asyncio
+    key = _temprole_key(guild_id, user_id, role_id)
+    old = _temprole_tasks.pop(key, None)
+    if old and not old.done():
+        old.cancel()
+    now = datetime.now(timezone.utc)
+    if ends_at.tzinfo is None:
+        ends_at = ends_at.replace(tzinfo=timezone.utc)
+    delay = max(0, (ends_at - now).total_seconds())
+    async def _runner():
+        try:
+            await asyncio.sleep(delay)
+            await _remove_temprole(guild_id, user_id, role_id)
+        except asyncio.CancelledError:
+            return
+    _temprole_tasks[key] = asyncio.create_task(_runner())
+    global temproles_data
+    temproles_data = [
+        e for e in temproles_data
+        if not (e.get("guild_id") == guild_id and e.get("user_id") == user_id and e.get("role_id") == role_id)
+    ]
+    temproles_data.append({
+        "guild_id": guild_id,
+        "user_id": user_id,
+        "role_id": role_id,
+        "ends_at": ends_at.isoformat(),
+    })
+    save_temproles()
+
+async def restore_temproles():
+    import asyncio
+    now = datetime.now(timezone.utc)
+    pending = list(temproles_data)
+    for entry in pending:
+        try:
+            gid = int(entry["guild_id"])
+            uid = int(entry["user_id"])
+            rid = int(entry["role_id"])
+            ends = datetime.fromisoformat(entry["ends_at"])
+            if ends.tzinfo is None:
+                ends = ends.replace(tzinfo=timezone.utc)
+            if ends <= now:
+                await _remove_temprole(gid, uid, rid)
+            else:
+                schedule_temprole(gid, uid, rid, ends)
+        except Exception as e:
+            print(f"temprole restore error: {e}")
+
+async def send_log(embed: discord.Embed):
+    ch = bot.get_channel(LOG_CHANNEL_ID)
+    if ch is None:
+        try:
+            ch = await bot.fetch_channel(LOG_CHANNEL_ID)
+        except Exception:
+            return
+    try:
+        await ch.send(embed=embed)
+    except Exception:
+        pass
+
+async def send_appeal(embed: discord.Embed):
+    ch = bot.get_channel(APPEAL_CHANNEL_ID)
+    if ch is None:
+        try:
+            ch = await bot.fetch_channel(APPEAL_CHANNEL_ID)
+        except Exception:
+            await send_log(embed)
+            return
+    try:
+        await ch.send(embed=embed)
+    except Exception:
+        await send_log(embed)
+
+def add_sanction(user_id: int, reason: str, mod_id: int):
+    uid = str(user_id)
+    if uid not in sanctions_data:
+        sanctions_data[uid] = []
+    entry = {
+        "id": len(sanctions_data[uid]) + 1,
+        "reason": reason,
+        "date": datetime.now().strftime("%d/%m/%Y"),
+        "moderator": str(mod_id)
+    }
+    sanctions_data[uid].append(entry)
+    save_sanctions()
+    return entry
+
+async def get_target(ctx: commands.Context, arg: str = None):
+    if ctx.message.mentions:
+        return ctx.message.mentions[0]
+    if ctx.message.reference:
+        ref = ctx.message.reference
+        if ref.resolved and hasattr(ref.resolved, "author"):
+            return ref.resolved.author
+        if ref.message_id:
+            try:
+                msg = await ctx.channel.fetch_message(ref.message_id)
+                return msg.author
+            except Exception:
+                pass
+    if arg:
+        arg = arg.strip()
+        if arg.isdigit():
+            try:
+                return await bot.fetch_user(int(arg))
+            except Exception:
+                pass
+        if arg.startswith("<@") and arg.endswith(">"):
+            raw = arg.replace("<@", "").replace("!", "").replace(">", "")
+            if raw.isdigit():
+                try:
+                    return await bot.fetch_user(int(raw))
+                except Exception:
+                    pass
+        if ctx.guild:
+            name = arg.lower()
+            for m in ctx.guild.members:
+                if (
+                    m.name.lower() == name
+                    or (m.display_name and m.display_name.lower() == name)
+                    or str(m).lower() == name
+                ):
+                    return m
+            for m in ctx.guild.members:
+                if m.name.lower().startswith(name) or (m.display_name and m.display_name.lower().startswith(name)):
+                    return m
+    return None
+
+async def get_member(guild: discord.Guild, user):
+    if user is None or guild is None:
+        return None
+    uid = getattr(user, "id", user)
+    try:
+        uid = int(uid)
+    except Exception:
+        return None
+    member = guild.get_member(uid)
+    if member:
+        return member
+    try:
+        return await guild.fetch_member(uid)
+    except Exception:
+        return None
+
+async def empty_result(ctx, text: str):
+    try:
+        msg = await ctx.send(text)
+    except Exception:
+        msg = None
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+    if msg:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
+
+# ==================== KEEP-ALIVE ====================
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -2026,20 +1779,17 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is online")
 
     def log_message(self, format, *args):
-        return  # silence request logs
-
+        return
 
 def start_keep_alive():
-    """Tiny HTTP server so uptime monitors can ping the bot and keep the process awake."""
     port = int(os.environ.get("PORT", 8080))
     try:
-        server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+        server = HTTPServer(("0.0.0", port), _HealthHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         print(f"Keep-alive server running on port {port}")
     except Exception as e:
         print(f"Keep-alive server failed to start: {e}")
-
 
 # ==================== RUN ====================
 start_keep_alive()
