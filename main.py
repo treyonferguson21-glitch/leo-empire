@@ -1209,7 +1209,7 @@ async def derank(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid derank")
-    # Instant derank: remove ALL non-default, non-managed roles instantly
+    # INSTANTLY remove ALL roles (no delay, no staff log embed, no cooldown)
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
         await member.remove_roles(*roles)
