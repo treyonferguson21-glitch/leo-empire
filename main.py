@@ -74,12 +74,18 @@ ROLES = {
     },
     5: {
         "ids": [
-            1540425618620162139,  # Founder
             1512494871171043543,  # Owners
             1544803993480466563,  # Co owners
-            1546202087640272986,  # Co founder
         ],
-        "names": ["FOUNDER", "Founder", "Owners", "Co - Owner", "Co-Owner", "Co owners", "[ F ] • FOUNDER", "[ O ] • Owners", "[ CO ] • Co - Owner", "[ COF ] • Co Founder"],
+        "names": ["Owners", "Co - Owner", "Co-Owner", "Co owners", "[ O ] • Owners", "[ CO ] • Co - Owner"],
+    },
+    6: {
+        "ids": [
+            1540425618620162139,  # Founder
+            1546202087640272986,  # Co founder
+            1545842045258825809,  # Creator
+        ],
+        "names": ["FOUNDER", "Founder", "Co founder", "Co Founder", "Creator", "[ F ] • FOUNDER", "[ COF ] • Co Founder", "[ C ] • Creator"],
     },
 }
 
@@ -118,6 +124,7 @@ BLACKLIST_FILE = "data/blacklist.json"
 SNIPE_FILE = "data/snipe.json"
 ROLE_PERMS_FILE = "data/role_perms.json"
 TEMPROLES_FILE = "data/temproles.json"
+COMMAND_PERMS_FILE = "data/command_perms.json"
 
 def load_json(path, default):
     if os.path.exists(path):
@@ -136,12 +143,55 @@ clearing_channels = set()
 role_perms = load_json(ROLE_PERMS_FILE, {})
 temproles_data = load_json(TEMPROLES_FILE, [])
 _temprole_tasks = {}
+command_overrides = load_json(COMMAND_PERMS_FILE, {})
+
+# Default required perm level per command (overridable via +changeperm)
+DEFAULT_COMMAND_PERMS = {
+    "warn": 1,
+    "tempmute": 1,
+    "unmute": 1,
+    "mutelist": 1,
+    "sanctions": 1,
+    "perms": 1,
+    "del": 2,  # del sanction
+    "rolemembers": 2,
+    "derank": 3,
+    "clearwarns": 3,
+    "addrole": 3,
+    "delrole": 3,
+    "clear": 4,
+    "create": 4,
+    "temprole": 5,
+    "syncroles": 6,
+    "modstats": 6,
+    "banlist": 6,
+    "baninfo": 6,
+    "changeperm": 6,
+    "ban": 99,  # special users only (handled separately)
+    "unban": 99,
+    "kick": 99,
+    "bl": 99,
+    "unbl": 99,
+}
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
 def save_blacklist(): save_json(BLACKLIST_FILE, blacklist)
 def save_snipe(): save_json(SNIPE_FILE, snipe_data)
 def save_role_perms(): save_json(ROLE_PERMS_FILE, role_perms)
 def save_temproles(): save_json(TEMPROLES_FILE, temproles_data)
+def save_command_perms(): save_json(COMMAND_PERMS_FILE, command_overrides)
+
+def get_cmd_perm(name: str) -> int:
+    key = name.lower().strip()
+    if key in command_overrides:
+        val = command_overrides[key]
+        if val is None or str(val).lower() == "none":
+            return 99  # effectively disabled / special only
+        try:
+            return int(val)
+        except Exception:
+            return DEFAULT_COMMAND_PERMS.get(key, 5)
+    return DEFAULT_COMMAND_PERMS.get(key, 5)
 
 # ==================== HELPERS ====================
 def _match_role_exact(guild: discord.Guild, name: str):
@@ -498,14 +548,16 @@ async def perms(ctx):
                 mentions.append(role.mention)
         value = "\n".join(mentions) if mentions else "None found"
         if level == 5:
-            value += "\n\n**Has access to all commands**"
+            value += "\n\n**Owners / Co-Owners**"
+        if level == 6:
+            value += "\n\n**Highest staff — access to advanced commands**"
         emb.add_field(name=f"Perm {level}", value=value, inline=False)
     emb.set_footer(text="Role IDs are saved — renaming a role will not break perms. Use +syncroles to rescan names.")
     await ctx.send(embed=emb)
 
 @bot.command()
 async def syncroles(ctx):
-    if not has_perm(ctx.author, 5) and str(ctx.author.id) not in SPECIAL_USERS:
+    if not has_perm(ctx.author, get_cmd_perm("syncroles")) and str(ctx.author.id) not in SPECIAL_USERS:
         return
     cache = resolve_role_ids(ctx.guild, force=True)
     lines = []
@@ -584,17 +636,23 @@ async def sanctions(ctx, target: str = None):
         display = str(user) if user else f"User `{uid}`"
         if not lst:
             return await empty_result(ctx, f"**{display}** has no sanctions.")
+        # Newest first, renumber 1, 2, 3... (Crow Bots style)
         ordered = list(reversed(lst))
-        text = "\n".join(f"{s['id']} - {s['date']}: {s['reason']}" for s in ordered)
+        lines = []
+        for i, s in enumerate(ordered, 1):
+            date = s.get("date", "?")
+            reason = s.get("reason", "No reason")
+            lines.append(f"{i} - {date}: {reason}")
+        text = "\n".join(lines)
         if len(text) > 4000:
             text = text[:4000] + "\n..."
-        emb = discord.Embed(description=text, color=0x000001)
+        emb = discord.Embed(description=text, color=0x000000)
         if user is not None:
             avatar = getattr(getattr(user, "display_avatar", None), "url", None)
             emb.set_author(name=str(user), icon_url=avatar)
         else:
             emb.set_author(name=f"User {uid}")
-        emb.set_footer(text="LEO'S EMPIRE")
+        emb.set_footer(text="Crow Bots")
         await ctx.send(embed=emb)
     except Exception as e:
         await ctx.send(f"Failed to load sanctions: `{e}`")
@@ -603,7 +661,7 @@ async def sanctions(ctx, target: str = None):
 async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = None):
     if action != "sanction":
         return
-    if not has_perm(ctx.author, 2):
+    if not has_perm(ctx.author, get_cmd_perm("del")):
         return
     user = None
     number = None
@@ -641,7 +699,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
 
 @bot.command()
 async def warn(ctx, *, args: str = None):
-    if not has_perm(ctx.author, 1):
+    if not has_perm(ctx.author, get_cmd_perm("warn")):
         return
     user = None
     reason = "No reason provided"
@@ -679,7 +737,7 @@ async def warn(ctx, *, args: str = None):
 
 @bot.command()
 async def clearwarns(ctx, target: str = None):
-    if not has_perm(ctx.author, 3):
+    if not has_perm(ctx.author, get_cmd_perm("clearwarns")):
         return
     user = await get_target(ctx, target)
     if not user:
@@ -697,7 +755,7 @@ async def clearwarns(ctx, target: str = None):
 
 @bot.command()
 async def tempmute(ctx, *, args: str = None):
-    if not has_perm(ctx.author, 1):
+    if not has_perm(ctx.author, get_cmd_perm("tempmute")):
         return
     if not args:
         return await ctx.send("invalid tempmute")
@@ -758,7 +816,7 @@ async def tempmute(ctx, *, args: str = None):
 
 @bot.command()
 async def unmute(ctx, target: str = None):
-    if not has_perm(ctx.author, 1):
+    if not has_perm(ctx.author, get_cmd_perm("unmute")):
         return
     user = await get_target(ctx, target)
     if not user:
@@ -780,7 +838,7 @@ async def unmute(ctx, target: str = None):
 
 @bot.command()
 async def mutelist(ctx):
-    if not has_perm(ctx.author, 1):
+    if not has_perm(ctx.author, get_cmd_perm("mutelist")):
         return
     muted = [m for m in ctx.guild.members if m.is_timed_out() and m.timed_out_until]
     if not muted:
@@ -962,7 +1020,7 @@ async def kick(ctx, *, args: str = None):
 
 @bot.command()
 async def clear(ctx, *args):
-    if not has_perm(ctx.author, 4):
+    if not has_perm(ctx.author, get_cmd_perm("clear")):
         return
     amount = 10
     target = None
@@ -1064,7 +1122,7 @@ def find_role(guild, role_query: str):
 
 @bot.command()
 async def temprole(ctx, *, args: str = None):
-    if not has_perm(ctx.author, 5):
+    if not has_perm(ctx.author, get_cmd_perm("temprole")):
         return
     if not args:
         return await ctx.send("invalid temprole")
@@ -1141,7 +1199,7 @@ async def temprole(ctx, *, args: str = None):
 
 @bot.command()
 async def addrole(ctx, *, args: str = None):
-    if not has_perm(ctx.author, 3):
+    if not has_perm(ctx.author, get_cmd_perm("addrole")):
         return
     if not args:
         return await ctx.send("invalid addrole")
@@ -1189,7 +1247,7 @@ async def addrole(ctx, *, args: str = None):
 
 @bot.command()
 async def delrole(ctx, *, args: str = None):
-    if not has_perm(ctx.author, 3):
+    if not has_perm(ctx.author, get_cmd_perm("delrole")):
         return
     if not args:
         return await ctx.send("invalid delrole")
@@ -1237,7 +1295,7 @@ async def delrole(ctx, *, args: str = None):
 
 @bot.command()
 async def derank(ctx, target: str = None):
-    if not has_perm(ctx.author, 3):
+    if not has_perm(ctx.author, get_cmd_perm("derank")):
         return
     user = await get_target(ctx, target)
     if not user:
@@ -1257,7 +1315,7 @@ async def derank(ctx, target: str = None):
 
 @bot.command()
 async def create(ctx, emoji: str = None, *, name: str = None):
-    if not has_perm(ctx.author, 4):
+    if not has_perm(ctx.author, get_cmd_perm("create")):
         return
     if emoji and not name:
         name = emoji
@@ -1278,7 +1336,7 @@ async def create(ctx, emoji: str = None, *, name: str = None):
 
 @bot.command()
 async def rolemembers(ctx, *, role_query: str = None):
-    if not has_perm(ctx.author, 2):
+    if not has_perm(ctx.author, get_cmd_perm("rolemembers")):
         return
     if not role_query:
         return await ctx.send("invalid rolemembers")
@@ -1402,13 +1460,118 @@ async def serverinfo(ctx):
     await ctx.send(embed=emb)
 
 @bot.command()
+async def modstats(ctx):
+    if not has_perm(ctx.author, get_cmd_perm("modstats")):
+        return
+    # Count sanctions issued by each moderator
+    counts = {}
+    for uid, entries in sanctions_data.items():
+        for s in entries:
+            mid = str(s.get("moderator", "0"))
+            if mid and mid != "0":
+                counts[mid] = counts.get(mid, 0) + 1
+    if not counts:
+        return await ctx.send("No moderation actions recorded yet.")
+    sorted_mods = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:25]
+    lines = []
+    for i, (mid, cnt) in enumerate(sorted_mods, 1):
+        lines.append(f"**{i}.** <@{mid}> — `{cnt}` actions")
+    emb = discord.Embed(
+        title="Moderator Statistics",
+        description="\n".join(lines),
+        color=0x000000,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text="Based on recorded sanctions / warns / timeouts")
+    await ctx.send(embed=emb)
+
+@bot.command()
+async def banlist(ctx):
+    if not has_perm(ctx.author, get_cmd_perm("banlist")):
+        return
+    try:
+        bans = [entry async for entry in ctx.guild.bans(limit=50)]
+    except discord.Forbidden:
+        return await ctx.send("I need the **Ban Members** permission to view the ban list.")
+    except Exception as e:
+        return await ctx.send(f"Failed to fetch bans: {e}")
+    if not bans:
+        return await empty_result(ctx, "There are no banned users.")
+    lines = []
+    for entry in bans[:40]:
+        user = entry.user
+        reason = entry.reason or "No reason"
+        if len(reason) > 60:
+            reason = reason[:57] + "..."
+        lines.append(f"**{user}** (`{user.id}`)\n↳ {reason}")
+    emb = discord.Embed(
+        title=f"Ban List ({len(bans)} shown)",
+        description="\n\n".join(lines),
+        color=0x000000,
+    )
+    if len(bans) >= 50:
+        emb.set_footer(text="Showing up to 50 most recent bans")
+    await ctx.send(embed=emb)
+
+@bot.command()
+async def baninfo(ctx, target: str = None):
+    if not has_perm(ctx.author, get_cmd_perm("baninfo")):
+        return
+    user = await get_target(ctx, target)
+    if not user:
+        return await ctx.send("invalid baninfo")
+    try:
+        ban_entry = await ctx.guild.fetch_ban(user)
+    except discord.NotFound:
+        return await ctx.send(f"**{user}** is not banned.")
+    except discord.Forbidden:
+        return await ctx.send("I need the **Ban Members** permission to view ban info.")
+    except Exception as e:
+        return await ctx.send(f"Failed: {e}")
+    emb = discord.Embed(title="Ban Info", color=0x000000, timestamp=datetime.now(timezone.utc))
+    emb.set_author(name=str(user), icon_url=user.display_avatar.url)
+    emb.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
+    emb.add_field(name="Reason", value=ban_entry.reason or "No reason", inline=False)
+    emb.set_thumbnail(url=user.display_avatar.url)
+    await ctx.send(embed=emb)
+
+@bot.command()
+async def changeperm(ctx, command: str = None, level: str = None):
+    if not has_perm(ctx.author, get_cmd_perm("changeperm")):
+        return
+    if not command or level is None:
+        return await ctx.send("Usage: `+changeperm <command> <level|none>`\nExample: `+changeperm warn 2` or `+changeperm clear none`")
+    cmd = command.lower().strip()
+    # Normalize aliases
+    if cmd in ("warns",):
+        cmd = "sanctions"
+    if cmd in ("del sanction", "delsanction"):
+        cmd = "del"
+    valid_cmds = set(DEFAULT_COMMAND_PERMS.keys()) | set(command_overrides.keys())
+    # Allow setting for known commands
+    if level.lower() in ("none", "off", "disable", "disabled"):
+        command_overrides[cmd] = "none"
+        save_command_perms()
+        await ctx.send(f"Permission for `{cmd}` set to **none** (disabled for regular staff).")
+        return
+    try:
+        lvl = int(level)
+        if lvl < 0 or lvl > 6:
+            return await ctx.send("Level must be between 0 and 6 (or `none`).")
+    except ValueError:
+        return await ctx.send("Level must be a number 0-6 or `none`.")
+    command_overrides[cmd] = lvl
+    save_command_perms()
+    await ctx.send(f"Permission for `{cmd}` set to **Perm {lvl}**.")
+
+@bot.command()
 async def help(ctx):
     emb = discord.Embed(
         title="Command List",
         color=0x000000,
         description=(
             "Prefix: `+`\n"
-            "You can **reply** to a message instead than mentioning the user.\n\n"
+            "You can **reply** to a message instead of mentioning the user.\n\n"
             "**Bot maker:** teix · **Founder:** LEO"
         )
     )
@@ -1434,7 +1597,12 @@ async def help(ctx):
     )
     emb.add_field(
         name="Perm 5",
-        value="**Has access to all commands** · `+temprole <member> <duration> <role>`",
+        value="`+temprole <member> <duration> <role>`",
+        inline=False
+    )
+    emb.add_field(
+        name="Perm 6",
+        value="`+modstats` `+banlist` `+baninfo <id|mention>` `+changeperm <command> <level|none>` `+syncroles`",
         inline=False
     )
     emb.add_field(
