@@ -381,15 +381,28 @@ async def on_member_join(member):
         if ch is None:
             ch = await bot.fetch_channel(WELCOME_CHANNEL_ID)
         count = member.guild.member_count or len(member.guild.members)
-        text = (
-            f"Welcome to {member.mention} in **LEO'S EMPIRE** !\n\n"
-            f"> 💬 <#{WELCOME_CHAT_ID}>\n"
-            f"> 📜 <#{WELCOME_RULES_ID}>\n"
-            f"> 📢 <#{WELCOME_ANNOUNCEMENTS_ID}>\n"
-            f"> 🔗 <#{WELCOME_INVITE_TRACKER_ID}>\n\n"
-            f"**We are now {count} members in the server!**"
+        emb = discord.Embed(
+            title="New Member Joined!",
+            description=(
+                f"👏 Welcome {member.mention} to **Leo's middleman**!\n\n"
+                f"Glad to have you here. Check out our channels and enjoy your stay! 🎉"
+            ),
+            color=0x000000,
+            timestamp=datetime.now(timezone.utc),
         )
-        await ch.send(text)
+        emb.add_field(
+            name="Account Created",
+            value=discord.utils.format_dt(member.created_at, "R"),
+            inline=True,
+        )
+        emb.add_field(
+            name="Member Count",
+            value=f"#{count}",
+            inline=True,
+        )
+        emb.set_thumbnail(url=member.display_avatar.url)
+        emb.set_footer(text="Leo's middleman | Mari")
+        await ch.send(embed=emb)
     except Exception as e:
         print(f"Welcome message failed: {e}")
 
