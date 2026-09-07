@@ -818,8 +818,10 @@ async def mutelist(ctx):
 async def ban(ctx, *, args: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
+
     user = None
     reason = "No reason"
+
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -838,23 +840,30 @@ async def ban(ctx, *, args: str = None):
             reason = parts[1]
         elif not user:
             pass
+
     if not user:
         return await ctx.send("invalid ban")
     if user.id == ctx.author.id:
         return await ctx.send("invalid ban")
+
     try:
         dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
+
         if reason and reason != "No reason":
             await ctx.send(f"Banned **{user}** | Reason: {reason}")
         else:
             await ctx.send(f"Banned **{user}**")
+
         log = discord.Embed(title="Ban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Reason", value=reason, inline=False)
         log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
         await send_log(log)
+
+    except discord.Forbidden:
+        await ctx.send("I don't have permission to ban that user (check my role position + Ban Members permission).")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
@@ -876,17 +885,33 @@ async def unban(ctx, user_id: str = None):
         return
     if not user_id:
         return await ctx.send("invalid unban")
+
+    # Clean the ID (supports raw ID or mention)
+    raw = user_id.strip().replace("<@", "").replace("!", "").replace(">", "")
+    if not raw.isdigit():
+        return await ctx.send("invalid unban")
+
     try:
-        user = await bot.fetch_user(int(user_id))
+        user = await bot.fetch_user(int(raw))
+    except (ValueError, discord.NotFound, discord.HTTPException):
+        return await ctx.send("invalid unban")
+
+    try:
         await ctx.guild.unban(user)
         dm_ok = await dm_unbanned(user)
         extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
         await ctx.send(f"Unbanned **{user}**{extra}")
+
         log = discord.Embed(title="Unban", color=0x000000, timestamp=datetime.now())
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
         await send_log(log)
+
+    except discord.NotFound:
+        await ctx.send("This user is not banned.")
+    except discord.Forbidden:
+        await ctx.send("I don't have permission to unban members.")
     except Exception as e:
         await ctx.send(f"Failed to unban: {e}")
 
@@ -1798,7 +1823,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
 def start_keep_alive():
     port = int(os.environ.get("PORT", 8080))
     try:
-        server = HTTPServer(("0.0.0", port), _HealthHandler)
+        server = HTTPServer(("0.0.0.0", port), _HealthHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         print(f"Keep-alive server running on port {port}")
