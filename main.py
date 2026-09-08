@@ -1216,8 +1216,10 @@ async def temprole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid temprole")
-    if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        return await ctx.send("invalid temprole")
+    # Only Perm 6 / owner / special can assign roles >= their own top role
+    if role >= ctx.author.top_role:
+        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+            return await ctx.send("invalid temprole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid temprole")
     try:
@@ -1275,8 +1277,10 @@ async def addrole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid addrole")
-    if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        return await ctx.send("invalid addrole")
+    # Only Perm 6 / owner / special can assign roles >= their own top role
+    if role >= ctx.author.top_role:
+        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+            return await ctx.send("invalid addrole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid addrole")
     if role in member.roles:
@@ -1323,8 +1327,10 @@ async def delrole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid delrole")
-    if role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        return await ctx.send("invalid delrole")
+    # Only Perm 6 / owner / special can manage roles >= their own top role
+    if role >= ctx.author.top_role:
+        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+            return await ctx.send("invalid delrole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid delrole")
     if role not in member.roles:
