@@ -277,8 +277,13 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
         return False
     mod_level = get_perm_level(moderator)
     target_level = get_perm_level(target)
-    if target_level > 0 and mod_level <= target_level:
+    # Regular members (no staff role) can always be moderated by staff
+    if target_level == 0:
+        return True
+    # Staff targets: mod must have strictly higher perm level
+    if mod_level <= target_level:
         return False
+    # Also respect Discord role hierarchy between staff
     try:
         if moderator.top_role <= target.top_role:
             return False
