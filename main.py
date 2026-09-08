@@ -20,6 +20,9 @@ WELCOME_RULES_ID = 1512494871644995743
 WELCOME_ANNOUNCEMENTS_ID = 1520525418858418236
 WELCOME_INVITE_TRACKER_ID = 1520524185854804109
 
+# Leave system
+LEAVES_CHANNEL_ID = 1520523777258033353
+
 # Boost thank-you system (Leo's Middleman)
 BOOST_CHANNEL_ID = 1512494871838068862
 BOOST_ROLE_ID = 1546910059014136022  # VIP role granted on boost
@@ -104,8 +107,6 @@ BLACKLISTED_WORDS = [
     # self-harm / threats
     "kys", "kill yourself", "kill urself", "hang yourself", "go die",
     "neck yourself", "end yourself",
-    # other
-    "server",
 ]
 
 # Scam / nitro bait — separate message + sanction reason "link"
@@ -460,6 +461,44 @@ async def on_member_join(member):
         await ch.send(embed=emb)
     except Exception as e:
         print(f"Welcome message failed: {e}")
+
+@bot.event
+async def on_member_remove(member):
+    try:
+        ch = bot.get_channel(LEAVES_CHANNEL_ID)
+        if ch is None:
+            ch = await bot.fetch_channel(LEAVES_CHANNEL_ID)
+        count = member.guild.member_count or len(member.guild.members)
+        emb = discord.Embed(
+            title="Member Left",
+            description=(
+                f"👋 **{member}** has left **Leo's middleman**.\n\n"
+                f"We'll miss you — hope to see you again soon!"
+            ),
+            color=0x000000,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.add_field(
+            name="Account Created",
+            value=discord.utils.format_dt(member.created_at, "R"),
+            inline=True,
+        )
+        emb.add_field(
+            name="Member Count",
+            value=f"#{count}",
+            inline=True,
+        )
+        if member.joined_at:
+            emb.add_field(
+                name="Joined",
+                value=discord.utils.format_dt(member.joined_at, "R"),
+                inline=True,
+            )
+        emb.set_thumbnail(url=member.display_avatar.url)
+        emb.set_footer(text="Leo's middleman | Mari")
+        await ch.send(embed=emb)
+    except Exception as e:
+        print(f"Leave message failed: {e}")
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
