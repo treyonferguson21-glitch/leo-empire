@@ -169,8 +169,8 @@ DEFAULT_COMMAND_PERMS = {
     "temprole": 6,
     "syncroles": 6,
     "modstats": 6,
-    "banlist": 6,
-    "baninfo": 6,
+    "banlist": 5,
+    "baninfo": 5,
     "changeperm": 6,
     "ban": 99,  # special users only (handled separately)
     "unban": 99,
@@ -1641,12 +1641,12 @@ async def help(ctx):
     )
     emb.add_field(
         name="Perm 5",
-        value="*(no exclusive commands — Owners / Co-Owners / King / Supervisor)*",
+        value="`+banlist` `+baninfo <id|mention>`",
         inline=False
     )
     emb.add_field(
         name="Perm 6",
-        value="`+temprole <member> <duration> <role>` `+modstats` `+banlist` `+baninfo <id|mention>` `+changeperm <command> <level|none>` `+syncroles`",
+        value="`+temprole <member> <duration> <role>` `+modstats` `+changeperm <command> <level|none>` `+syncroles`",
         inline=False
     )
     emb.add_field(
