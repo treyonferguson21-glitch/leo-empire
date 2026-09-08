@@ -591,8 +591,6 @@ async def perms(ctx):
                 seen.add(role.id)
                 mentions.append(role.mention)
         value = "\n".join(mentions) if mentions else "None found"
-        if level == 5:
-            value += "\n\n**Owners / Co-Owners**"
         if level == 6:
             value += "\n\n**Highest staff — access to advanced commands**"
         emb.add_field(name=f"Perm {level}", value=value, inline=False)
