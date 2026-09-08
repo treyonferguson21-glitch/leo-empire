@@ -20,6 +20,10 @@ WELCOME_RULES_ID = 1512494871644995743
 WELCOME_ANNOUNCEMENTS_ID = 1520525418858418236
 WELCOME_INVITE_TRACKER_ID = 1520524185854804109
 
+# Boost thank-you system (Leo's Middleman)
+BOOST_CHANNEL_ID = 1512494871838068862
+BOOST_ROLE_ID = 1546910059014136022  # VIP role granted on boost
+
 SPECIAL_USERS = [
     "1517924890370375928",
 ]
@@ -67,17 +71,18 @@ ROLES = {
             1512494871171043540,  # Admin
             1512494871171043541,  # Manager
             1546192012435390515,  # Community Manager
-            1534637036542365787,  # King
             1545848631750299789,  # Head Manager
         ],
-        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Community Manager", "King", "Head Manager", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
+        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Community Manager", "Head Manager", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
     },
     5: {
         "ids": [
             1512494871171043543,  # Owners
             1544803993480466563,  # Co owners
+            1534637036542365787,  # King (moved to perm 5)
+            1546912446004994108,  # Supervisor
         ],
-        "names": ["Owners", "Co - Owner", "Co-Owner", "Co owners", "[ O ] • Owners", "[ CO ] • Co - Owner"],
+        "names": ["Owners", "Co - Owner", "Co-Owner", "Co owners", "King", "Supervisor", "[ O ] • Owners", "[ CO ] • Co - Owner", "[ K ] • King"],
     },
     6: {
         "ids": [
@@ -161,7 +166,7 @@ DEFAULT_COMMAND_PERMS = {
     "delrole": 3,
     "clear": 4,
     "create": 4,
-    "temprole": 5,
+    "temprole": 6,
     "syncroles": 6,
     "modstats": 6,
     "banlist": 6,
@@ -458,6 +463,45 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
+    # ---------- BOOST DETECTION (Leo's Middleman) ----------
+    try:
+        if before.premium_since is None and after.premium_since is not None:
+            # User just boosted the server
+            role = after.guild.get_role(BOOST_ROLE_ID)
+            if role and role not in after.roles:
+                try:
+                    await after.add_roles(role, reason="Server boost reward — VIP")
+                except Exception as e:
+                    print(f"Failed to give boost role: {e}")
+
+            # Build thank-you embed (styled like the original boost message)
+            server_boosts = after.guild.premium_subscription_count or 0
+            emb = discord.Embed(
+                title="Thank you for boosting!",
+                description=(
+                    f"{after.mention} has boosted the server!\n\n"
+                    f"As a reward, you've been granted the 💎 **VIP** role! 🎉\n\n"
+                    f"Thank you for your support — it means everything to us!"
+                ),
+                color=0x000000,
+                timestamp=datetime.now(timezone.utc),
+            )
+            emb.set_thumbnail(url=after.display_avatar.url)
+            emb.add_field(name="🎁 Reward", value="💎 VIP", inline=True)
+            emb.add_field(name="❤️ Their Boosts", value="1+", inline=True)
+            emb.add_field(name="🖥️ Server Boosts", value=str(server_boosts), inline=True)
+            emb.set_footer(text="Leo's Middleman • Bot by Mari")
+            try:
+                ch = bot.get_channel(BOOST_CHANNEL_ID)
+                if ch is None:
+                    ch = await bot.fetch_channel(BOOST_CHANNEL_ID)
+                await ch.send(content=after.mention, embed=emb)
+            except Exception as e:
+                print(f"Boost thank-you message failed: {e}")
+    except Exception as e:
+        print(f"Boost check error: {e}")
+
+    # ---------- TIMEOUT TRACKING (existing) ----------
     try:
         before_to = before.timed_out_until
         after_to = after.timed_out_until
@@ -1572,7 +1616,7 @@ async def help(ctx):
         description=(
             "Prefix: `+`\n"
             "You can **reply** to a message instead of mentioning the user.\n\n"
-            "**Bot maker:** teix · **Founder:** LEO"
+            "**Bot maker:** Mari · **Founder:** LEO"
         )
     )
     emb.add_field(
@@ -1597,12 +1641,12 @@ async def help(ctx):
     )
     emb.add_field(
         name="Perm 5",
-        value="`+temprole <member> <duration> <role>`",
+        value="*(no exclusive commands — Owners / Co-Owners / King / Supervisor)*",
         inline=False
     )
     emb.add_field(
         name="Perm 6",
-        value="`+modstats` `+banlist` `+baninfo <id|mention>` `+changeperm <command> <level|none>` `+syncroles`",
+        value="`+temprole <member> <duration> <role>` `+modstats` `+banlist` `+baninfo <id|mention>` `+changeperm <command> <level|none>` `+syncroles`",
         inline=False
     )
     emb.add_field(
@@ -1615,7 +1659,7 @@ async def help(ctx):
         value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
         inline=False
     )
-    emb.set_footer(text="Bot maker: teix • Founder: LEO")
+    emb.set_footer(text="Bot maker: Mari • Founder: LEO")
     await ctx.send(embed=emb)
 
 # ==================== APPEAL SYSTEM ====================
