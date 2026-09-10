@@ -49,6 +49,11 @@ BL_COMMAND_USERS = [
     "1391635894045380619",
 ]
 
+# Extra roles that can use +addrole / +delrole only (NOT shown in +perms panel)
+ROLE_MANAGE_EXTRA_IDS = [
+    1547401287392301216,  # Head of Recruitment
+]
+
 # Exact role names from your server (used once to find role IDs).
 # After the bot finds them, it saves the ROLE IDs — so if you rename a role,
 # permissions still work without updating this list.
@@ -275,6 +280,12 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
         return False
     if str(target.id) in SPECIAL_USERS:
         return False
+    # Discord role hierarchy: higher top role can always moderate lower roles
+    try:
+        if moderator.top_role > target.top_role:
+            return True
+    except Exception:
+        pass
     mod_level = get_perm_level(moderator)
     target_level = get_perm_level(target)
     # Regular members (no staff role) can always be moderated by staff
@@ -290,6 +301,13 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
     except Exception:
         return False
     return True
+
+def has_role_manage_extra(member: discord.Member) -> bool:
+    """True if member has a role in ROLE_MANAGE_EXTRA_IDS (addrole/delrole only)."""
+    if not member or not getattr(member, "roles", None):
+        return False
+    extra = set(ROLE_MANAGE_EXTRA_IDS)
+    return any(r.id in extra for r in member.roles)
 
 # ==================== EVENTS ====================
 @bot.event
@@ -1287,7 +1305,7 @@ async def temprole(ctx, *, args: str = None):
 
 @bot.command()
 async def addrole(ctx, *, args: str = None):
-    if not has_perm(ctx.author, get_cmd_perm("addrole")):
+    if not has_perm(ctx.author, get_cmd_perm("addrole")) and not has_role_manage_extra(ctx.author):
         return
     if not args:
         return await ctx.send("invalid addrole")
@@ -1337,7 +1355,7 @@ async def addrole(ctx, *, args: str = None):
 
 @bot.command()
 async def delrole(ctx, *, args: str = None):
-    if not has_perm(ctx.author, get_cmd_perm("delrole")):
+    if not has_perm(ctx.author, get_cmd_perm("delrole")) and not has_role_manage_extra(ctx.author):
         return
     if not args:
         return await ctx.send("invalid delrole")
