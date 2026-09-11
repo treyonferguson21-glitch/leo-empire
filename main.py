@@ -13,6 +13,12 @@ PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
 APPEAL_CHANNEL_ID = 1544449118489808976  # unban appeals
 
+# Panel theme (LEOS MM banner inspired — gold glow on dark)
+THEME_COLOR = 0xFFCC00          # bright gold like the banner text
+THEME_COLOR_DARK = 0x0A0A0A     # near-black for logs / secondary
+FOOTER_TEXT = "LEOS MM • Bot by Mari"
+BRAND_NAME = "LEOS MM"
+
 # Welcome system
 WELCOME_CHANNEL_ID = 1512494871644995740
 WELCOME_CHAT_ID = 1512494872203100276
@@ -316,7 +322,7 @@ async def on_ready():
     await bot.change_presence(
         status=discord.Status.online,
         activity=discord.Streaming(
-            name="LEOS EMPIRE",
+            name="LEOS MM",
             url="https://www.twitch.tv/discord"
         )
     )
@@ -399,10 +405,15 @@ async def filter_bad_content(message) -> bool:
                 pass
             add_sanction(message.author.id, "link", bot.user.id if bot.user else 0)
             await _warn_and_cleanup(f"{message.author.mention} this a some bad things you got going")
-            emb = discord.Embed(title="Scam / Link Filter", color=0x000000, timestamp=datetime.now())
+            emb = discord.Embed(
+                title=f"✦ Scam / Link Filter — {BRAND_NAME}",
+                color=THEME_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
             emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
             emb.add_field(name="Matched", value=word)
             emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            emb.set_footer(text=FOOTER_TEXT)
             await send_log(emb)
             return True
 
@@ -414,10 +425,15 @@ async def filter_bad_content(message) -> bool:
                 pass
             add_sanction(message.author.id, "bad word", bot.user.id if bot.user else 0)
             await _warn_and_cleanup(f"{message.author.mention} you said a blacklisted word")
-            emb = discord.Embed(title="Blacklisted Word", color=0x000000, timestamp=datetime.now())
+            emb = discord.Embed(
+                title=f"✦ Blacklisted Word — {BRAND_NAME}",
+                color=THEME_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
             emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
             emb.add_field(name="Word", value=word)
             emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            emb.set_footer(text=FOOTER_TEXT)
             await send_log(emb)
             return True
 
@@ -463,10 +479,10 @@ async def on_member_join(member):
         emb = discord.Embed(
             title="New Member Joined!",
             description=(
-                f"👏 Welcome {member.mention} to **Leo's middleman**!\n\n"
+                f"👏 Welcome {member.mention} to **{BRAND_NAME}**!\n\n"
                 f"Glad to have you here. Check out our channels and enjoy your stay! 🎉"
             ),
-            color=0x000000,
+            color=THEME_COLOR,
             timestamp=datetime.now(timezone.utc),
         )
         emb.add_field(
@@ -480,7 +496,7 @@ async def on_member_join(member):
             inline=True,
         )
         emb.set_thumbnail(url=member.display_avatar.url)
-        emb.set_footer(text="Leo's middleman | Mari")
+        emb.set_footer(text=FOOTER_TEXT)
         await ch.send(embed=emb)
     except Exception as e:
         print(f"Welcome message failed: {e}")
@@ -495,10 +511,10 @@ async def on_member_remove(member):
         emb = discord.Embed(
             title="Member Left",
             description=(
-                f"👋 **{member}** has left **Leo's middleman**.\n\n"
+                f"👋 **{member}** has left **{BRAND_NAME}**.\n\n"
                 f"We'll miss you — hope to see you again soon!"
             ),
-            color=0x000000,
+            color=THEME_COLOR,
             timestamp=datetime.now(timezone.utc),
         )
         emb.add_field(
@@ -518,7 +534,7 @@ async def on_member_remove(member):
                 inline=True,
             )
         emb.set_thumbnail(url=member.display_avatar.url)
-        emb.set_footer(text="Leo's middleman | Mari")
+        emb.set_footer(text=FOOTER_TEXT)
         await ch.send(embed=emb)
     except Exception as e:
         print(f"Leave message failed: {e}")
@@ -536,23 +552,23 @@ async def on_member_update(before: discord.Member, after: discord.Member):
                 except Exception as e:
                     print(f"Failed to give boost role: {e}")
 
-            # Build thank-you embed (styled like the original boost message)
+            # Build thank-you embed (LEOS MM themed)
             server_boosts = after.guild.premium_subscription_count or 0
             emb = discord.Embed(
-                title="Thank you for boosting!",
+                title=f"✦ Thank you for boosting! — {BRAND_NAME}",
                 description=(
                     f"{after.mention} has boosted the server!\n\n"
                     f"As a reward, you've been granted the 💎 **VIP** role! 🎉\n\n"
                     f"Thank you for your support — it means everything to us!"
                 ),
-                color=0x000000,
+                color=THEME_COLOR,
                 timestamp=datetime.now(timezone.utc),
             )
             emb.set_thumbnail(url=after.display_avatar.url)
             emb.add_field(name="🎁 Reward", value="💎 VIP", inline=True)
             emb.add_field(name="❤️ Their Boosts", value="1+", inline=True)
             emb.add_field(name="🖥️ Server Boosts", value=str(server_boosts), inline=True)
-            emb.set_footer(text="Leo's Middleman • Bot by Mari")
+            emb.set_footer(text=FOOTER_TEXT)
             try:
                 ch = bot.get_channel(BOOST_CHANNEL_ID)
                 if ch is None:
@@ -603,11 +619,16 @@ async def on_member_update(before: discord.Member, after: discord.Member):
         if reason and reason != "timeout":
             text = f"timeout {dur} - {reason}"
         add_sanction(after.id, text, mod_id)
-        log = discord.Embed(title="Timeout (manual/other)", color=0x000000, timestamp=datetime.now())
+        log = discord.Embed(
+            title=f"✦ Timeout (manual/other) — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{after} (`{after.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"<@{mod_id}> (`{mod_id}`)", inline=False)
         log.add_field(name="Duration", value=dur, inline=True)
         log.add_field(name="Reason", value=reason, inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
 
 @bot.event
@@ -628,12 +649,24 @@ async def on_command_error(ctx, error):
 # ==================== COMMANDS ====================
 @bot.command()
 async def ping(ctx):
-    await ctx.send(f"Pong! `{round(bot.latency*1000)}ms`")
+    emb = discord.Embed(
+        title=f"✦ Pong — {BRAND_NAME}",
+        description=f"Latency: **`{round(bot.latency*1000)}ms`**",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
+    await ctx.send(embed=emb)
 
 @bot.command()
 async def perms(ctx):
     cache = resolve_role_ids(ctx.guild)
-    emb = discord.Embed(title="Permissions", color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ {BRAND_NAME} Permissions",
+        description="Staff hierarchy & access levels\nRole IDs are saved — renaming a role will not break perms.",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     for level in sorted(ROLES.keys()):
         mentions = []
         seen = set()
@@ -652,11 +685,11 @@ async def perms(ctx):
             if role and role.id not in seen:
                 seen.add(role.id)
                 mentions.append(role.mention)
-        value = "\n".join(mentions) if mentions else "None found"
+        value = "\n".join(mentions) if mentions else "*None found*"
         if level == 6:
-            value += "\n\n**Highest staff — access to advanced commands**"
-        emb.add_field(name=f"Perm {level}", value=value, inline=False)
-    emb.set_footer(text="Role IDs are saved — renaming a role will not break perms. Use +syncroles to rescan names.")
+            value += "\n\n**Highest staff — advanced commands**"
+        emb.add_field(name=f"▸ Perm {level}", value=value, inline=False)
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  Use +syncroles to rescan")
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -671,13 +704,14 @@ async def syncroles(ctx):
             role = ctx.guild.get_role(rid)
             if role:
                 roles.append(role.mention)
-        lines.append(f"**Perm {level}:** {' '.join(roles) if roles else 'none'}")
+        lines.append(f"**▸ Perm {level}:** {' '.join(roles) if roles else '*none*'}")
     emb = discord.Embed(
-        title="Roles synced",
+        title=f"✦ Roles Synced — {BRAND_NAME}",
         description="\n".join(lines) or "No roles matched.",
-        color=0x000000
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
     )
-    emb.set_footer(text="Saved role IDs. Renaming these roles will still keep the same perms.")
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  Role IDs saved")
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -690,7 +724,12 @@ async def snipe(ctx):
         desc = (desc + "\n" if desc and desc != "*attachment only*" else "") + "Sticker: " + ", ".join(data["stickers"])
     if not desc:
         desc = "*attachment only*"
-    emb = discord.Embed(title="Snipe", description=desc, color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ Snipe — {BRAND_NAME}",
+        description=desc,
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     emb.add_field(name="Author", value=data["author"], inline=True)
     deleted_text = data.get("time", "unknown")
     if data.get("timestamp"):
@@ -709,7 +748,7 @@ async def snipe(ctx):
             other.append(f"[{att.get('filename', 'file')}]({att['url']})")
     if other:
         emb.add_field(name="Files", value="\n".join(other[:5]), inline=False)
-    emb.set_footer(text="Crow Bots")
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
 @bot.command(aliases=["warns"])
@@ -740,23 +779,29 @@ async def sanctions(ctx, target: str = None):
         display = str(user) if user else f"User `{uid}`"
         if not lst:
             return await empty_result(ctx, f"**{display}** has no sanctions.")
-        # Newest first, renumber 1, 2, 3... (Crow Bots style)
+        # Newest first, renumber 1, 2, 3...
         ordered = list(reversed(lst))
         lines = []
         for i, s in enumerate(ordered, 1):
             date = s.get("date", "?")
             reason = s.get("reason", "No reason")
-            lines.append(f"{i} - {date}: {reason}")
+            lines.append(f"**{i}** — {date}: {reason}")
         text = "\n".join(lines)
         if len(text) > 4000:
             text = text[:4000] + "\n..."
-        emb = discord.Embed(description=text, color=0x000000)
+        emb = discord.Embed(
+            title=f"✦ Sanctions — {BRAND_NAME}",
+            description=text,
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         if user is not None:
             avatar = getattr(getattr(user, "display_avatar", None), "url", None)
             emb.set_author(name=str(user), icon_url=avatar)
+            emb.set_thumbnail(url=avatar)
         else:
             emb.set_author(name=f"User {uid}")
-        emb.set_footer(text="Crow Bots")
+        emb.set_footer(text=FOOTER_TEXT)
         await ctx.send(embed=emb)
     except Exception as e:
         await ctx.send(f"Failed to load sanctions: `{e}`")
@@ -794,11 +839,23 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
     for i, s in enumerate(sanctions_data[uid], 1):
         s["id"] = i
     save_sanctions()
-    await ctx.send(f"Sanction deleted: {deleted['date']}: {deleted['reason']}")
-    log = discord.Embed(title="Del Sanction", color=0x000000, timestamp=datetime.now())
+    emb = discord.Embed(
+        title=f"✦ Del Sanction — {BRAND_NAME}",
+        description=f"Sanction deleted: **{deleted['date']}**: {deleted['reason']}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
+    await ctx.send(embed=emb)
+    log = discord.Embed(
+        title=f"✦ Del Sanction — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
     log.add_field(name="Deleted", value=f"{deleted['date']}: {deleted['reason']}", inline=False)
+    log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
 @bot.command()
@@ -831,12 +888,23 @@ async def warn(ctx, *, args: str = None):
     if target_member and not can_moderate(ctx.author, target_member):
         return await ctx.send("You can't warn someone with an equal or higher rank.")
     add_sanction(user.id, reason, ctx.author.id)
-    emb = discord.Embed(title="warn", description=f"{user.mention} was warned\nreason: {reason}", color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ Warn — {BRAND_NAME}",
+        description=f"{user.mention} was warned\n**Reason:** {reason}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
-    log = discord.Embed(title="Warn", color=0x000000, timestamp=datetime.now())
+    log = discord.Embed(
+        title=f"✦ Warn — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
     log.add_field(name="Reason", value=reason, inline=False)
+    log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
 @bot.command()
@@ -851,10 +919,22 @@ async def clearwarns(ctx, target: str = None):
         return await ctx.send("You can't clear warns for someone with an equal or higher rank.")
     sanctions_data[str(user.id)] = []
     save_sanctions()
-    await ctx.send(f"Cleared all sanctions for **{user}**")
-    log = discord.Embed(title="Clear Warns", color=0x000000, timestamp=datetime.now())
+    emb = discord.Embed(
+        title=f"✦ Clear Warns — {BRAND_NAME}",
+        description=f"Cleared all sanctions for **{user}**",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
+    await ctx.send(embed=emb)
+    log = discord.Embed(
+        title=f"✦ Clear Warns — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+    log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
 @bot.command()
@@ -906,12 +986,24 @@ async def tempmute(ctx, *, args: str = None):
     try:
         await member.timeout(delta, reason=reason)
         add_sanction(user.id, f"timeout {duration} - {reason}", ctx.author.id)
-        await ctx.send(f"Successfully timed out {member.mention} {duration} for the following reason: `{reason}`")
-        log = discord.Embed(title="Tempmute", color=0x000000, timestamp=datetime.now())
+        emb = discord.Embed(
+            title=f"✦ Tempmute — {BRAND_NAME}",
+            description=f"Successfully timed out {member.mention} for **{duration}**\n**Reason:** `{reason}`",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Tempmute — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Duration", value=duration, inline=True)
         log.add_field(name="Reason", value=reason, inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except discord.Forbidden:
         await ctx.send("Missing permissions: move my role **above** the target's role and enable **Timeout Members** for me.")
@@ -932,10 +1024,22 @@ async def unmute(ctx, target: str = None):
         return await ctx.send("You can't unmute someone with an equal or higher rank.")
     try:
         await member.timeout(None)
-        await ctx.send(f"Unmuted {member.mention} successfully")
-        log = discord.Embed(title="Unmute", color=0x000000, timestamp=datetime.now())
+        emb = discord.Embed(
+            title=f"✦ Unmute — {BRAND_NAME}",
+            description=f"Unmuted {member.mention} successfully",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Unmute — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed to unmute: {e}")
@@ -964,16 +1068,18 @@ async def mutelist(ctx):
     max_show = 40
     for m in muted[:max_show]:
         remaining = format_remaining(m.timed_out_until)
-        lines.append(f"{m.mention} : {remaining}")
-    description = "**Timeouts**\n" + "\n".join(lines)
+        lines.append(f"{m.mention} — `{remaining}`")
+    description = "\n".join(lines)
     not_shown = len(muted) - max_show
     if not_shown > 0:
-        description += f"\n{not_shown} not showed"
+        description += f"\n\n*{not_shown} more not shown*"
     emb = discord.Embed(
-        title="Current mutes",
+        title=f"✦ Current Mutes — {BRAND_NAME}",
         description=description,
-        color=0x000000
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
     )
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(muted)} active timeout(s)")
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1012,16 +1118,28 @@ async def ban(ctx, *, args: str = None):
         dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
 
+        desc = f"Banned **{user}**"
         if reason and reason != "No reason":
-            await ctx.send(f"Banned **{user}** | Reason: {reason}")
-        else:
-            await ctx.send(f"Banned **{user}**")
+            desc += f"\n**Reason:** {reason}"
+        emb = discord.Embed(
+            title=f"✦ Ban — {BRAND_NAME}",
+            description=desc,
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
 
-        log = discord.Embed(title="Ban", color=0x000000, timestamp=datetime.now())
+        log = discord.Embed(
+            title=f"✦ Ban — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Reason", value=reason, inline=False)
         log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
 
     except discord.Forbidden:
@@ -1062,12 +1180,24 @@ async def unban(ctx, user_id: str = None):
         await ctx.guild.unban(user)
         dm_ok = await dm_unbanned(user)
         extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
-        await ctx.send(f"Unbanned **{user}**{extra}")
+        emb = discord.Embed(
+            title=f"✦ Unban — {BRAND_NAME}",
+            description=f"Unbanned **{user}**{extra}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
 
-        log = discord.Embed(title="Unban", color=0x000000, timestamp=datetime.now())
+        log = discord.Embed(
+            title=f"✦ Unban — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
 
     except discord.NotFound:
@@ -1110,14 +1240,26 @@ async def kick(ctx, *, args: str = None):
         return await ctx.send("You can't kick someone with an equal or higher rank.")
     try:
         await member.kick(reason=reason)
+        desc = f"Kicked **{user}**"
         if reason and reason != "No reason":
-            await ctx.send(f"Kicked **{user}** | Reason: {reason}")
-        else:
-            await ctx.send(f"Kicked **{user}**")
-        log = discord.Embed(title="Kick", color=0x000000, timestamp=datetime.now())
+            desc += f"\n**Reason:** {reason}"
+        emb = discord.Embed(
+            title=f"✦ Kick — {BRAND_NAME}",
+            description=desc,
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Kick — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Reason", value=reason, inline=False)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed: {e}")
@@ -1289,16 +1431,27 @@ async def temprole(ctx, *, args: str = None):
             await member.add_roles(role, reason=f"Temp role {duration} by {ctx.author}")
         ends_at = datetime.now(timezone.utc) + delta
         schedule_temprole(ctx.guild.id, member.id, role.id, ends_at)
-        await ctx.send(
-            f"Gave **{role.name}** to {member.mention} for **{duration}** "
-            f"(removes {discord.utils.format_dt(ends_at, 'R')})",
-            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        emb = discord.Embed(
+            title=f"✦ Temp Role — {BRAND_NAME}",
+            description=(
+                f"Gave **{role.name}** to {member.mention} for **{duration}**\n"
+                f"Removes {discord.utils.format_dt(ends_at, 'R')}"
+            ),
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
         )
-        log = discord.Embed(title="Temp Role", color=0x000000, timestamp=datetime.now())
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        log = discord.Embed(
+            title=f"✦ Temp Role — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=True)
         log.add_field(name="Duration", value=duration, inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed: {e}")
@@ -1461,12 +1614,12 @@ async def rolemembers(ctx, *, role_query: str = None):
         return await ctx.send(f"No members have the role **{role.name}**.")
     lines = [f"{m.mention} (`{m.id}`)" for m in members[:30]]
     emb = discord.Embed(
-        title=f"Members with {role.name} ({len(members)})",
+        title=f"✦ Members with {role.name}",
         description="\n".join(lines),
-        color=0x000000
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
     )
-    if len(members) > 30:
-        emb.set_footer(text=f"Showing 30/{len(members)}")
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(members)} member(s)" + (f" (showing 30)" if len(members) > 30 else ""))
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1508,13 +1661,24 @@ async def bl(ctx, *, args: str = None):
         desc = f"{user.mention} banned and blacklisted\nreason: {reason}"
     else:
         desc = f"{user.mention} banned and blacklisted"
-    emb = discord.Embed(title="blacklist", description=desc, color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ Blacklist — {BRAND_NAME}",
+        description=desc,
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
-    log = discord.Embed(title="Blacklist", color=0x000000, timestamp=datetime.now())
+    log = discord.Embed(
+        title=f"✦ Blacklist — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
     log.add_field(name="Reason", value=reason, inline=False)
     log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
+    log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
 @bot.command()
@@ -1536,11 +1700,23 @@ async def unbl(ctx, user_id: str = None):
             pass
         dm_ok = await dm_unbanned(user)
         extra = " (DM sent)" if dm_ok else " (could not DM — no mutual server or DMs closed)"
-        await ctx.send(f"Removed `{uid}` from blacklist and unbanned.{extra}")
-        log = discord.Embed(title="Unblacklist", color=0x000000, timestamp=datetime.now())
+        emb = discord.Embed(
+            title=f"✦ Unblacklist — {BRAND_NAME}",
+            description=f"Removed `{uid}` from blacklist and unbanned.{extra}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Unblacklist — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
         log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
         log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except Exception:
         await ctx.send(f"Removed `{uid}` from blacklist.")
@@ -1549,24 +1725,40 @@ async def unbl(ctx, user_id: str = None):
 async def userinfo(ctx, target: str = None):
     user = await get_target(ctx, target) or ctx.author
     member = ctx.guild.get_member(user.id)
-    emb = discord.Embed(color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ User Info — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     emb.set_author(name=str(user), icon_url=user.display_avatar.url)
     emb.set_thumbnail(url=user.display_avatar.url)
-    emb.add_field(name="ID", value=user.id, inline=True)
+    emb.add_field(name="ID", value=f"`{user.id}`", inline=True)
     emb.add_field(name="Created", value=discord.utils.format_dt(user.created_at, "R"), inline=True)
     if member:
         emb.add_field(name="Joined", value=discord.utils.format_dt(member.joined_at, "R"), inline=True)
+        if member.premium_since:
+            emb.add_field(name="Boosting", value=discord.utils.format_dt(member.premium_since, "R"), inline=True)
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
 @bot.command()
 async def serverinfo(ctx):
     g = ctx.guild
-    emb = discord.Embed(title=g.name, color=0x000000)
+    emb = discord.Embed(
+        title=f"✦ {g.name}",
+        description=f"**{BRAND_NAME}** server overview",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     if g.icon:
         emb.set_thumbnail(url=g.icon.url)
     emb.add_field(name="Owner", value=f"<@{g.owner_id}>", inline=True)
-    emb.add_field(name="Members", value=g.member_count, inline=True)
+    emb.add_field(name="Members", value=f"`{g.member_count}`", inline=True)
     emb.add_field(name="Created", value=discord.utils.format_dt(g.created_at, "R"), inline=True)
+    emb.add_field(name="Boosts", value=f"`{g.premium_subscription_count or 0}`", inline=True)
+    emb.add_field(name="Channels", value=f"`{len(g.channels)}`", inline=True)
+    emb.add_field(name="Roles", value=f"`{len(g.roles)}`", inline=True)
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1587,12 +1779,12 @@ async def modstats(ctx):
     for i, (mid, cnt) in enumerate(sorted_mods, 1):
         lines.append(f"**{i}.** <@{mid}> — `{cnt}` actions")
     emb = discord.Embed(
-        title="Moderator Statistics",
+        title=f"✦ Moderator Statistics — {BRAND_NAME}",
         description="\n".join(lines),
-        color=0x000000,
+        color=THEME_COLOR,
         timestamp=datetime.now(timezone.utc),
     )
-    emb.set_footer(text="Based on recorded sanctions / warns / timeouts")
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  Based on recorded sanctions / warns / timeouts")
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1615,12 +1807,12 @@ async def banlist(ctx):
             reason = reason[:57] + "..."
         lines.append(f"**{user}** (`{user.id}`)\n↳ {reason}")
     emb = discord.Embed(
-        title=f"Ban List ({len(bans)} shown)",
+        title=f"✦ Ban List — {BRAND_NAME}",
         description="\n\n".join(lines),
-        color=0x000000,
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
     )
-    if len(bans) >= 50:
-        emb.set_footer(text="Showing up to 50 most recent bans")
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(bans)} shown" + (" (up to 50)" if len(bans) >= 50 else ""))
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1638,11 +1830,16 @@ async def baninfo(ctx, target: str = None):
         return await ctx.send("I need the **Ban Members** permission to view ban info.")
     except Exception as e:
         return await ctx.send(f"Failed: {e}")
-    emb = discord.Embed(title="Ban Info", color=0x000000, timestamp=datetime.now(timezone.utc))
+    emb = discord.Embed(
+        title=f"✦ Ban Info — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
     emb.set_author(name=str(user), icon_url=user.display_avatar.url)
     emb.add_field(name="User", value=f"{user} (`{user.id}`)", inline=False)
     emb.add_field(name="Reason", value=ban_entry.reason or "No reason", inline=False)
     emb.set_thumbnail(url=user.display_avatar.url)
+    emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -1677,55 +1874,56 @@ async def changeperm(ctx, command: str = None, level: str = None):
 @bot.command()
 async def help(ctx):
     emb = discord.Embed(
-        title="Command List",
-        color=0x000000,
+        title=f"✦ {BRAND_NAME} Command List",
+        color=THEME_COLOR,
         description=(
-            "Prefix: `+`\n"
+            f"**Prefix:** `{PREFIX}`\n"
             "You can **reply** to a message instead of mentioning the user.\n\n"
             "**Bot maker:** Mari · **Founder:** LEO"
-        )
+        ),
+        timestamp=datetime.now(timezone.utc),
     )
     emb.add_field(
-        name="Perm 1",
+        name="▸ Perm 1",
         value="`+help` `+warn <member> [reason]` `+mutelist` `+perms` `+sanctions <member>` `+tempmute <member> <duration> [reason]` `+unmute <member>`",
         inline=False
     )
     emb.add_field(
-        name="Perm 2",
+        name="▸ Perm 2",
         value="`+del sanction <member> <number>` `+rolemembers <role>`",
         inline=False
     )
     emb.add_field(
-        name="Perm 3",
+        name="▸ Perm 3",
         value="`+derank <member>` `+clearwarns <member>` `+addrole <member> <role>` `+delrole <member> <role>`",
         inline=False
     )
     emb.add_field(
-        name="Perm 4",
+        name="▸ Perm 4",
         value="`+clear [number] [member]` `+create [emoji] [name]`",
         inline=False
     )
     emb.add_field(
-        name="Perm 5",
+        name="▸ Perm 5",
         value="`+banlist` `+baninfo <id|mention>`",
         inline=False
     )
     emb.add_field(
-        name="Perm 6",
+        name="▸ Perm 6",
         value="`+temprole <member> <duration> <role>` `+modstats` `+changeperm <command> <level|none>` `+syncroles`",
         inline=False
     )
     emb.add_field(
-        name="Special Users only",
+        name="▸ Special Users only",
         value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
         inline=False
     )
     emb.add_field(
-        name="Everyone",
+        name="▸ Everyone",
         value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
         inline=False
     )
-    emb.set_footer(text="Bot maker: Mari • Founder: LEO")
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  Founder: LEO")
     await ctx.send(embed=emb)
 
 # ==================== APPEAL SYSTEM ====================
@@ -1734,22 +1932,22 @@ async def dm_ban_appeal(user, reason: str = "No reason"):
         return False
     try:
         emb = discord.Embed(
-            title="You have been banned from LEO'S EMPIRE",
+            title=f"You have been banned from {BRAND_NAME}",
             description=(
                 f"**Reason:** {reason}\n\n"
                 "You can **apply to get unbanned** by DMing me:\n"
                 "`+appeal`\n\n"
                 "I will ask for your user ID, ban reason, and why you want to be unbanned."
             ),
-            color=0x000000,
+            color=THEME_COLOR,
         )
-        emb.set_footer(text="LEO'S EMPIRE • Unban appeals")
+        emb.set_footer(text=f"{BRAND_NAME} • Unban appeals")
         await user.send(embed=emb)
         return True
     except Exception:
         try:
             await user.send(
-                f"You have been banned from **LEO'S EMPIRE**.\n"
+                f"You have been banned from **{BRAND_NAME}**.\n"
                 f"Reason: {reason}\n\n"
                 f"To apply for an unban, DM me: `+appeal`"
             )
@@ -1762,7 +1960,7 @@ appeal_sessions = {}
 async def start_appeal_session(user):
     appeal_sessions[user.id] = {"step": "user_id", "data": {}}
     await user.send(
-        "**Unban appeal — LEO'S EMPIRE**\n\n"
+        f"**Unban appeal — {BRAND_NAME}**\n\n"
         "**Question 1/3:** What is your **Discord user ID**?\n"
         "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
         "Type `cancel` anytime to stop."
@@ -1814,9 +2012,9 @@ async def continue_appeal_session(message) -> bool:
         data["why_unban"] = text[:1500]
         appeal_sessions.pop(uid, None)
         emb = discord.Embed(
-            title="Unban Appeal",
-            color=0x000000,
-            timestamp=datetime.now(),
+            title=f"✦ Unban Appeal — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
         )
         emb.add_field(name="Submitted by", value=f"{message.author} (`{message.author.id}`)", inline=False)
         emb.add_field(name="Their User ID", value=f"`{data.get('user_id', '?')}`", inline=False)
@@ -1828,10 +2026,10 @@ async def continue_appeal_session(message) -> bool:
             inline=False,
         )
         emb.set_thumbnail(url=message.author.display_avatar.url)
-        emb.set_footer(text="LEO'S EMPIRE • Appeal")
+        emb.set_footer(text=f"{BRAND_NAME} • Appeal")
         await send_appeal(emb)
         await message.channel.send(
-            "Your unban appeal was **sent** to LEO'S EMPIRE staff.\n"
+            f"Your unban appeal was **sent** to {BRAND_NAME} staff.\n"
             "Please wait for a decision — do not spam appeals."
         )
         return True
@@ -1842,20 +2040,20 @@ async def dm_unbanned(user):
         return False
     try:
         emb = discord.Embed(
-            title="You have been unbanned",
+            title=f"You have been unbanned — {BRAND_NAME}",
             description=(
-                "You have been **unbanned** from **LEO'S EMPIRE**.\n\n"
+                f"You have been **unbanned** from **{BRAND_NAME}**.\n\n"
                 f"You can rejoin here: {SERVER_INVITE}"
             ),
-            color=0x000000,
+            color=THEME_COLOR,
         )
-        emb.set_footer(text="LEO'S EMPIRE")
+        emb.set_footer(text=BRAND_NAME)
         await user.send(embed=emb)
         return True
     except Exception:
         try:
             await user.send(
-                f"You have been unbanned from **LEO'S EMPIRE**.\n"
+                f"You have been unbanned from **{BRAND_NAME}**.\n"
                 f"Rejoin here: {SERVER_INVITE}"
             )
             return True
@@ -1918,9 +2116,14 @@ async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
         return
     try:
         await member.remove_roles(role, reason="Temporary role expired")
-        log = discord.Embed(title="Temp Role Expired", color=0x000000, timestamp=datetime.now())
+        log = discord.Embed(
+            title=f"✦ Temp Role Expired — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
         log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
         log.add_field(name="Role", value=f"{role.name} (`{role.id}`)", inline=False)
+        log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
     except Exception:
         pass
