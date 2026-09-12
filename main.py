@@ -36,6 +36,7 @@ BOOST_ROLE_ID = 1546910059014136022  # VIP role granted on boost
 
 SPECIAL_USERS = [
     "1517924890370375928",
+    "1391635894045380619",
 ]
 
 # +ban +unban only
@@ -1716,9 +1717,9 @@ async def temprole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid temprole")
-    # Only Perm 6 / owner / special can assign roles >= their own top role
+    # Only SPECIAL_USERS can assign roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
-        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+        if str(ctx.author.id) not in SPECIAL_USERS:
             return await ctx.send("invalid temprole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid temprole")
@@ -1788,9 +1789,9 @@ async def addrole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid addrole")
-    # Only Perm 6 / owner / special can assign roles >= their own top role
+    # Only SPECIAL_USERS can assign roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
-        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+        if str(ctx.author.id) not in SPECIAL_USERS:
             return await ctx.send("invalid addrole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid addrole")
@@ -1838,9 +1839,9 @@ async def delrole(ctx, *, args: str = None):
     role = find_role(ctx.guild, role_name)
     if not role:
         return await ctx.send("invalid delrole")
-    # Only Perm 6 / owner / special can manage roles >= their own top role
+    # Only SPECIAL_USERS can manage roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
-        if ctx.author.id != ctx.guild.owner_id and str(ctx.author.id) not in SPECIAL_USERS and not has_perm(ctx.author, 6):
+        if str(ctx.author.id) not in SPECIAL_USERS:
             return await ctx.send("invalid delrole")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("invalid delrole")
