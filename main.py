@@ -350,18 +350,42 @@ async def on_message_delete(message):
         return
     attachments = []
     image_url = None
+    IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".gifv")
     for att in message.attachments:
-        attachments.append({"url": att.url, "filename": att.filename, "content_type": att.content_type or ""})
-        if image_url is None and (att.content_type and att.content_type.startswith("image/") or att.filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))):
-            image_url = att.url
+        # Prefer proxy_url — lasts longer after the message is deleted
+        best_url = getattr(att, "proxy_url", None) or att.url
+        attachments.append({
+            "url": att.url,
+            "proxy_url": getattr(att, "proxy_url", None) or att.url,
+            "filename": att.filename,
+            "content_type": att.content_type or "",
+        })
+        is_image = (
+            (att.content_type and att.content_type.startswith("image/"))
+            or att.filename.lower().endswith(IMAGE_EXTS)
+        )
+        if image_url is None and is_image:
+            image_url = best_url
+    # Also capture images from embeds (e.g. linked gifs / image embeds)
+    if image_url is None:
+        for emb in getattr(message, "embeds", []) or []:
+            if emb.image and emb.image.url:
+                image_url = emb.image.url
+                break
+            if emb.thumbnail and emb.thumbnail.url:
+                image_url = emb.thumbnail.url
+                break
+            if emb.video and getattr(emb.video, "url", None):
+                image_url = emb.video.url
+                break
     stickers = [s.name for s in getattr(message, "stickers", [])] if getattr(message, "stickers", None) else []
     content = message.content or ""
-    if not content and not attachments and not stickers:
+    if not content and not attachments and not stickers and not image_url:
         content = "*no text*"
-    elif not content and attachments:
+    elif not content and (attachments or image_url):
         content = ""
     snipe_data[str(message.channel.id)] = {
-        "content": content if content else "*attachment only*",
+        "content": content if content else ("*attachment only*" if (attachments or image_url) else "*no text*"),
         "author": str(message.author),
         "author_id": message.author.id,
         "avatar": str(message.author.display_avatar.url),
@@ -403,10 +427,11 @@ async def on_message_delete(message):
         other_files = []
         for att in attachments:
             is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(
-                (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+                (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".gifv")
             )
-            if not is_img and att.get("url"):
-                other_files.append(f"[{att.get('filename', 'file')}]({att['url']})")
+            link = att.get("proxy_url") or att.get("url")
+            if not is_img and link:
+                other_files.append(f"[{att.get('filename', 'file')}]({link})")
         if other_files:
             emb.add_field(name="Files", value="\n".join(other_files[:5]), inline=False)
         emb.set_footer(text=f"{BRAND_NAME} Logs • {datetime.now().strftime('%m/%d/%y, %I:%M %p')}")
@@ -855,16 +880,36 @@ async def snipe(ctx):
         try:
             ts = datetime.fromisoformat(data["timestamp"])
             deleted_text = discord.utils.format_dt(ts, "R")
-        except:
+        except Exception:
             pass
     emb.add_field(name="Deleted", value=deleted_text, inline=True)
-    if data.get("image_url"):
-        emb.set_image(url=data["image_url"])
+
+    # Prefer stored image_url, then any image/gif attachment (proxy_url first)
+    img = data.get("image_url")
+    if not img:
+        for att in data.get("attachments") or []:
+            fname = (att.get("filename") or "").lower()
+            ctype = (att.get("content_type") or "").lower()
+            is_img = ctype.startswith("image/") or fname.endswith(
+                (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".gifv")
+            )
+            if is_img:
+                img = att.get("proxy_url") or att.get("url")
+                if img:
+                    break
+    if img:
+        emb.set_image(url=img)
+
     other = []
     for att in data.get("attachments") or []:
-        is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")))
-        if not is_img and att.get("url"):
-            other.append(f"[{att.get('filename', 'file')}]({att['url']})")
+        fname = (att.get("filename") or "").lower()
+        ctype = (att.get("content_type") or "").lower()
+        is_img = ctype.startswith("image/") or fname.endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".gifv")
+        )
+        link = att.get("proxy_url") or att.get("url")
+        if not is_img and link:
+            other.append(f"[{att.get('filename', 'file')}]({link})")
     if other:
         emb.add_field(name="Files", value="\n".join(other[:5]), inline=False)
     emb.set_footer(text=FOOTER_TEXT)
