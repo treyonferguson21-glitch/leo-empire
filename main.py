@@ -66,6 +66,7 @@ ROLE_MANAGE_EXTRA_IDS = [
 # permissions still work without updating this list.
 ROLES = {
     # Perm level -> role IDs (primary) + optional names (display / fallback only)
+    # Higher level = higher staff. Higher staff can moderate lower staff.
     1: {
         "ids": [1540435355633975366],  # Test Moderator
         "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"],
@@ -83,29 +84,44 @@ ROLES = {
     },
     4: {
         "ids": [
-            1512494871171043540,  # Admin
+            1512494871171043540,  # Administrator
             1512494871171043541,  # Manager
             1546192012435390515,  # Community Manager
-            1545848631750299789,  # Head Manager
+            1548423059646578840,  # Staff Manager
+            1545847662392119367,  # Head Manager
         ],
-        "names": ["Admin", "ADMIN", "Manager", "Server-Manager", "Community Manager", "Head Manager", "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
+        "names": [
+            "Administrator", "Admin", "ADMIN",
+            "Manager", "Server-Manager",
+            "Community Manager",
+            "Staff Manager",
+            "Head Manager",
+            "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord",
+        ],
     },
     5: {
         "ids": [
-            1512494871171043543,  # Owners
-            1544803993480466563,  # Co owners
-            1534637036542365787,  # King (moved to perm 5)
+            1534637036542365787,  # King
             1546912446004994108,  # Supervisor
+            1544803993480466563,  # Co Owner
+            1512494871171043543,  # Owners
         ],
-        "names": ["Owners", "Co - Owner", "Co-Owner", "Co owners", "King", "Supervisor", "[ O ] • Owners", "[ CO ] • Co - Owner", "[ K ] • King"],
+        "names": [
+            "King", "[ K ] • King",
+            "Supervisor",
+            "Co - Owner", "Co-Owner", "Co owners", "Co Owner", "[ CO ] • Co - Owner",
+            "Owners", "[ O ] • Owners",
+        ],
     },
     6: {
         "ids": [
             1540425618620162139,  # Founder
-            1546202087640272986,  # Co founder
             1545842045258825809,  # Creator
         ],
-        "names": ["FOUNDER", "Founder", "Co founder", "Co Founder", "Creator", "[ F ] • FOUNDER", "[ COF ] • Co Founder", "[ C ] • Creator"],
+        "names": [
+            "FOUNDER", "Founder", "[ F ] • FOUNDER",
+            "Creator", "[ C ] • Creator",
+        ],
     },
 }
 
@@ -277,6 +293,7 @@ def has_perm(member: discord.Member, level: int) -> bool:
     return get_perm_level(member) >= level
 
 def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
+    """Higher staff perm level can moderate lower staff — ignores Discord role position."""
     if moderator is None or target is None:
         return False
     if moderator.id == target.id:
@@ -289,27 +306,13 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
         return False
     if str(target.id) in SPECIAL_USERS:
         return False
-    # Discord role hierarchy: higher top role can always moderate lower roles
-    try:
-        if moderator.top_role > target.top_role:
-            return True
-    except Exception:
-        pass
     mod_level = get_perm_level(moderator)
     target_level = get_perm_level(target)
     # Regular members (no staff role) can always be moderated by staff
     if target_level == 0:
-        return True
-    # Staff targets: mod must have strictly higher perm level
-    if mod_level <= target_level:
-        return False
-    # Also respect Discord role hierarchy between staff
-    try:
-        if moderator.top_role <= target.top_role:
-            return False
-    except Exception:
-        return False
-    return True
+        return mod_level >= 1 or str(moderator.id) in SPECIAL_USERS
+    # Staff targets: only strictly higher staff perm level (not Discord top_role)
+    return mod_level > target_level
 
 def has_role_manage_extra(member: discord.Member) -> bool:
     """True if member has a role in ROLE_MANAGE_EXTRA_IDS (addrole/delrole only)."""
@@ -1861,6 +1864,8 @@ async def derank(ctx, target: str = None):
     member = await get_member(ctx.guild, user)
     if not member:
         return await ctx.send("invalid derank")
+    if not can_moderate(ctx.author, member):
+        return await ctx.send("You can't derank someone with an equal or higher staff rank.")
     # INSTANTLY remove ALL roles (no delay, no staff log embed, no cooldown)
     try:
         roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
