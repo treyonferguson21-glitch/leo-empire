@@ -12,6 +12,7 @@ TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 PREFIX = "+"
 LOG_CHANNEL_ID = 1544449119454634035
 APPEAL_CHANNEL_ID = 1544449118489808976  # unban appeals
+MESSAGE_LOG_CHANNEL_ID = 1544449115881209917  # message delete / edit logs
 
 # Panel theme (LEOS MM banner inspired — gold glow on dark)
 THEME_COLOR = 0xFFCC00          # bright gold like the banner text
@@ -132,7 +133,7 @@ intents.members = True
 intents.guilds = True
 intents.moderation = True
 
-bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None, case_insensitive=True)
 
 # ==================== DATA ====================
 os.makedirs("data", exist_ok=True)
@@ -372,9 +373,88 @@ async def on_message_delete(message):
     }
     save_snipe()
 
+    # ---- Message log panel (delete) ----
+    try:
+        display_content = content if content else "*attachment only*"
+        if stickers:
+            display_content = (display_content + "\n" if display_content and display_content != "*attachment only*" else "") + "Sticker: " + ", ".join(stickers)
+        display_content = censor_blacklisted(display_content) if display_content else "*no text*"
+        if len(display_content) > 1000:
+            display_content = display_content[:997] + "..."
+
+        emb = discord.Embed(
+            description=(
+                f"**Message by** {message.author.mention} **deleted in** {message.channel.mention}\n\n"
+                f"{display_content}"
+            ),
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_author(
+            name=str(message.author),
+            icon_url=message.author.display_avatar.url,
+        )
+        emb.add_field(name="User ID", value=f"`{message.author.id}`", inline=True)
+        emb.add_field(name="Channel", value=f"{message.channel.mention}", inline=True)
+        if message.id:
+            emb.add_field(name="Message ID", value=f"`{message.id}`", inline=True)
+        if image_url:
+            emb.set_image(url=image_url)
+        other_files = []
+        for att in attachments:
+            is_img = (att.get("content_type") or "").startswith("image/") or att.get("filename", "").lower().endswith(
+                (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+            )
+            if not is_img and att.get("url"):
+                other_files.append(f"[{att.get('filename', 'file')}]({att['url']})")
+        if other_files:
+            emb.add_field(name="Files", value="\n".join(other_files[:5]), inline=False)
+        emb.set_footer(text=f"{BRAND_NAME} Logs • {datetime.now().strftime('%m/%d/%y, %I:%M %p')}")
+        await send_message_log(emb)
+    except Exception as e:
+        print(f"Message delete log failed: {e}")
+
 @bot.event
 async def on_bulk_message_delete(messages):
-    return
+    if not messages:
+        return
+    first = messages[0]
+    if not first.guild:
+        return
+    # Skip if from clear command channel purge
+    try:
+        ch_id = first.channel.id if first.channel else None
+        if ch_id and ch_id in clearing_channels:
+            return
+    except Exception:
+        pass
+    try:
+        count = len(messages)
+        channel = first.channel
+        authors = {}
+        for m in messages:
+            if m.author and not m.author.bot:
+                authors[m.author.id] = m.author
+        author_list = ", ".join(f"{a.mention}" for a in list(authors.values())[:8])
+        if len(authors) > 8:
+            author_list += f" +{len(authors) - 8} more"
+        emb = discord.Embed(
+            description=(
+                f"**Bulk delete** in {channel.mention if channel else '*unknown*'}\n\n"
+                f"**{count}** message(s) removed"
+                + (f"\nAuthors: {author_list}" if author_list else "")
+            ),
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_author(name=f"{BRAND_NAME} Message Logs")
+        emb.add_field(name="Count", value=f"`{count}`", inline=True)
+        if channel:
+            emb.add_field(name="Channel", value=channel.mention, inline=True)
+        emb.set_footer(text=f"{BRAND_NAME} Logs • {datetime.now().strftime('%m/%d/%y, %I:%M %p')}")
+        await send_message_log(emb)
+    except Exception as e:
+        print(f"Bulk delete log failed: {e}")
 
 async def filter_bad_content(message) -> bool:
     if not message.guild or message.author.bot:
@@ -405,14 +485,15 @@ async def filter_bad_content(message) -> bool:
                 pass
             add_sanction(message.author.id, "link", bot.user.id if bot.user else 0)
             await _warn_and_cleanup(f"{message.author.mention} this a some bad things you got going")
+            censored = censor_blacklisted(content[:800])
             emb = discord.Embed(
                 title=f"✦ Scam / Link Filter — {BRAND_NAME}",
                 color=THEME_COLOR,
                 timestamp=datetime.now(timezone.utc),
             )
             emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
-            emb.add_field(name="Matched", value=word)
-            emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            emb.add_field(name="Matched", value="*(filtered link/scam)*")
+            emb.add_field(name="Message", value=f"```{censored}```", inline=False)
             emb.set_footer(text=FOOTER_TEXT)
             await send_log(emb)
             return True
@@ -425,14 +506,17 @@ async def filter_bad_content(message) -> bool:
                 pass
             add_sanction(message.author.id, "bad word", bot.user.id if bot.user else 0)
             await _warn_and_cleanup(f"{message.author.mention} you said a blacklisted word")
+            # Censor the bad word so it doesn't show fully in staff logs
+            censored_msg = censor_blacklisted(content[:800])
+            censored_word = censor_blacklisted(word)
             emb = discord.Embed(
                 title=f"✦ Blacklisted Word — {BRAND_NAME}",
                 color=THEME_COLOR,
                 timestamp=datetime.now(timezone.utc),
             )
             emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
-            emb.add_field(name="Word", value=word)
-            emb.add_field(name="Message", value=f"```{content[:800]}```", inline=False)
+            emb.add_field(name="Word", value=censored_word)
+            emb.add_field(name="Message", value=f"```{censored_msg}```", inline=False)
             emb.set_footer(text=FOOTER_TEXT)
             await send_log(emb)
             return True
@@ -461,6 +545,41 @@ async def on_message_edit(before, after):
         return
     if (before.content or "") == (after.content or ""):
         return
+
+    # ---- Message log panel (edit) ----
+    try:
+        before_text = before.content or "*empty*"
+        after_text = after.content or "*empty*"
+        if len(before_text) > 500:
+            before_text = before_text[:497] + "..."
+        if len(after_text) > 500:
+            after_text = after_text[:497] + "..."
+        before_text = censor_blacklisted(before_text)
+        after_text = censor_blacklisted(after_text)
+
+        emb = discord.Embed(
+            description=(
+                f"**Message by** {after.author.mention} **edited in** {after.channel.mention}\n\n"
+                f"**Before:**\n{before_text}\n\n"
+                f"**After:**\n{after_text}"
+            ),
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_author(
+            name=str(after.author),
+            icon_url=after.author.display_avatar.url,
+        )
+        emb.add_field(name="User ID", value=f"`{after.author.id}`", inline=True)
+        emb.add_field(name="Channel", value=after.channel.mention, inline=True)
+        emb.add_field(name="Message ID", value=f"`{after.id}`", inline=True)
+        if after.jump_url:
+            emb.add_field(name="Jump", value=f"[Go to message]({after.jump_url})", inline=False)
+        emb.set_footer(text=f"{BRAND_NAME} Logs • {datetime.now().strftime('%m/%d/%y, %I:%M %p')}")
+        await send_message_log(emb)
+    except Exception as e:
+        print(f"Message edit log failed: {e}")
+
     await filter_bad_content(after)
 
 @bot.event
@@ -751,7 +870,7 @@ async def snipe(ctx):
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
-@bot.command(aliases=["warns"])
+@bot.command(aliases=["warns", "sanction"])
 async def sanctions(ctx, target: str = None):
     try:
         user = None
@@ -778,7 +897,18 @@ async def sanctions(ctx, target: str = None):
         lst = sanctions_data.get(str(uid), [])
         display = str(user) if user else f"User `{uid}`"
         if not lst:
-            return await empty_result(ctx, f"**{display}** has no sanctions.")
+            emb = discord.Embed(
+                description="No sanctions received",
+                color=THEME_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
+            if user is not None:
+                avatar = getattr(getattr(user, "display_avatar", None), "url", None)
+                emb.set_author(name=str(user), icon_url=avatar)
+            else:
+                emb.set_author(name=f"User {uid}")
+            emb.set_footer(text=FOOTER_TEXT)
+            return await ctx.send(embed=emb)
         # Newest first, renumber 1, 2, 3...
         ordered = list(reversed(lst))
         lines = []
@@ -2189,6 +2319,19 @@ async def send_log(embed: discord.Embed):
     except Exception:
         pass
 
+async def send_message_log(embed: discord.Embed):
+    """Send message delete / edit / bulk-delete panels to the message log channel."""
+    ch = bot.get_channel(MESSAGE_LOG_CHANNEL_ID)
+    if ch is None:
+        try:
+            ch = await bot.fetch_channel(MESSAGE_LOG_CHANNEL_ID)
+        except Exception:
+            return
+    try:
+        await ch.send(embed=embed)
+    except Exception:
+        pass
+
 async def send_appeal(embed: discord.Embed):
     ch = bot.get_channel(APPEAL_CHANNEL_ID)
     if ch is None:
@@ -2274,17 +2417,18 @@ async def get_member(guild: discord.Guild, user):
         return None
 
 async def empty_result(ctx, text: str):
+    """Send a reply that stays (does not delete the command or the response)."""
     try:
-        msg = await ctx.send(text)
+        emb = discord.Embed(
+            description=text,
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
     except Exception:
-        msg = None
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-    if msg:
         try:
-            await msg.delete()
+            await ctx.send(text)
         except Exception:
             pass
 
