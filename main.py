@@ -178,6 +178,8 @@ DEFAULT_COMMAND_PERMS = {
     "addrole": 3,
     "delrole": 3,
     "clear": 4,
+    "lock": 4,
+    "unlock": 4,
     "create": 4,
     "temprole": 6,
     "syncroles": 6,
@@ -1511,6 +1513,122 @@ async def clear(ctx, *args):
     finally:
         clearing_channels.discard(ctx.channel.id)
 
+def _resolve_text_channel(ctx, channel_arg: str = None):
+    """Resolve a text/voice/stage/forum channel from mention, ID, name, or current channel."""
+    if channel_arg:
+        raw = channel_arg.strip()
+        # mention <#id>
+        if raw.startswith("<#") and raw.endswith(">"):
+            raw = raw[2:-1]
+        if raw.isdigit():
+            ch = ctx.guild.get_channel(int(raw))
+            if ch is not None:
+                return ch
+        # name search
+        name = raw.lower().lstrip("#")
+        for ch in ctx.guild.channels:
+            if ch.name.lower() == name:
+                return ch
+        for ch in ctx.guild.channels:
+            if name in ch.name.lower():
+                return ch
+        return None
+    return ctx.channel
+
+@bot.command()
+async def lock(ctx, channel: str = None):
+    """Lock a channel — @everyone cannot send messages."""
+    if not has_perm(ctx.author, get_cmd_perm("lock")):
+        return
+    ch = _resolve_text_channel(ctx, channel)
+    if ch is None:
+        return await ctx.send("invalid lock — channel not found")
+    if not isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel, discord.Thread)):
+        return await ctx.send("invalid lock — that is not a lockable channel")
+    try:
+        if isinstance(ch, discord.Thread):
+            await ch.edit(locked=True, reason=f"Locked by {ctx.author}")
+        else:
+            overwrite = ch.overwrites_for(ctx.guild.default_role)
+            overwrite.send_messages = False
+            overwrite.add_reactions = False
+            overwrite.create_public_threads = False
+            overwrite.create_private_threads = False
+            overwrite.send_messages_in_threads = False
+            await ch.set_permissions(
+                ctx.guild.default_role,
+                overwrite=overwrite,
+                reason=f"Locked by {ctx.author}",
+            )
+        emb = discord.Embed(
+            title=f"✦ Lock — {BRAND_NAME}",
+            description=f"Locked {ch.mention}\n@everyone can no longer send messages here.",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Lock — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        log.add_field(name="Channel", value=f"{ch.mention} (`{ch.id}`)", inline=False)
+        log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.set_footer(text=FOOTER_TEXT)
+        await send_log(log)
+    except discord.Forbidden:
+        await ctx.send("I need **Manage Channels** (and my role above the channel) to lock this.")
+    except Exception as e:
+        await ctx.send(f"Failed: {e}")
+
+@bot.command()
+async def unlock(ctx, channel: str = None):
+    """Unlock a channel — @everyone can send messages again."""
+    if not has_perm(ctx.author, get_cmd_perm("unlock")):
+        return
+    ch = _resolve_text_channel(ctx, channel)
+    if ch is None:
+        return await ctx.send("invalid unlock — channel not found")
+    if not isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel, discord.Thread)):
+        return await ctx.send("invalid unlock — that is not an unlockable channel")
+    try:
+        if isinstance(ch, discord.Thread):
+            await ch.edit(locked=False, reason=f"Unlocked by {ctx.author}")
+        else:
+            overwrite = ch.overwrites_for(ctx.guild.default_role)
+            overwrite.send_messages = None  # reset to default / inherit
+            overwrite.add_reactions = None
+            overwrite.create_public_threads = None
+            overwrite.create_private_threads = None
+            overwrite.send_messages_in_threads = None
+            await ch.set_permissions(
+                ctx.guild.default_role,
+                overwrite=overwrite,
+                reason=f"Unlocked by {ctx.author}",
+            )
+        emb = discord.Embed(
+            title=f"✦ Unlock — {BRAND_NAME}",
+            description=f"Unlocked {ch.mention}\n@everyone can send messages here again.",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.set_footer(text=FOOTER_TEXT)
+        await ctx.send(embed=emb)
+        log = discord.Embed(
+            title=f"✦ Unlock — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        log.add_field(name="Channel", value=f"{ch.mention} (`{ch.id}`)", inline=False)
+        log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+        log.set_footer(text=FOOTER_TEXT)
+        await send_log(log)
+    except discord.Forbidden:
+        await ctx.send("I need **Manage Channels** (and my role above the channel) to unlock this.")
+    except Exception as e:
+        await ctx.send(f"Failed: {e}")
+
 def find_role(guild, role_query: str):
     if not role_query:
         return None
@@ -2075,7 +2193,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="▸ Perm 4",
-        value="`+clear [number] [member]` `+create [emoji] [name]`",
+        value="`+clear [number] [member]` `+lock [channel]` `+unlock [channel]` `+create [emoji] [name]`",
         inline=False
     )
     emb.add_field(
