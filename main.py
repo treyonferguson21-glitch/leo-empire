@@ -851,7 +851,7 @@ async def perms(ctx):
 @bot.command()
 async def syncroles(ctx):
     if not has_perm(ctx.author, get_cmd_perm("syncroles")) and str(ctx.author.id) not in SPECIAL_USERS:
-        return await cmd_fail(ctx)
+        return
     cache = resolve_role_ids(ctx.guild, force=True)
     lines = []
     for level in sorted(cache.keys()):
@@ -998,7 +998,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
     if action != "sanction":
         return
     if not has_perm(ctx.author, get_cmd_perm("del")):
-        return await cmd_fail(ctx)
+        return
     user = None
     number = None
     if ctx.message.mentions:
@@ -1048,7 +1048,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
 @bot.command()
 async def warn(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("warn")):
-        return await cmd_fail(ctx)
+        return
     user = None
     reason = "No reason provided"
     if ctx.message.mentions:
@@ -1097,7 +1097,7 @@ async def warn(ctx, *, args: str = None):
 @bot.command()
 async def clearwarns(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("clearwarns")):
-        return await cmd_fail(ctx)
+        return
     user = await get_target(ctx, target)
     if not user:
         return await cmd_fail(ctx)
@@ -1127,7 +1127,7 @@ async def clearwarns(ctx, target: str = None):
 @bot.command()
 async def tempmute(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("tempmute")):
-        return await cmd_fail(ctx)
+        return
     if not args:
         return await cmd_fail(ctx)
     user = None
@@ -1200,7 +1200,7 @@ async def tempmute(ctx, *, args: str = None):
 @bot.command()
 async def unmute(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("unmute")):
-        return await cmd_fail(ctx)
+        return
     user = await get_target(ctx, target)
     if not user:
         return await cmd_fail(ctx)
@@ -1234,7 +1234,7 @@ async def unmute(ctx, target: str = None):
 @bot.command()
 async def mutelist(ctx):
     if not has_perm(ctx.author, get_cmd_perm("mutelist")):
-        return await cmd_fail(ctx)
+        return
     muted = [m for m in ctx.guild.members if m.is_timed_out() and m.timed_out_until]
     if not muted:
         return await empty_result(ctx, "There are no muted members.")
@@ -1272,7 +1272,7 @@ async def mutelist(ctx):
 @bot.command()
 async def ban(ctx, *, args: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
-        return await cmd_fail(ctx)
+        return
 
     user = None
     reason = "No reason"
@@ -1349,7 +1349,7 @@ async def appeal(ctx, *, _ignored: str = None):
 @bot.command()
 async def unban(ctx, user_id: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
-        return await cmd_fail(ctx)
+        return
     if not user_id:
         return await cmd_fail(ctx)
 
@@ -1397,7 +1397,7 @@ async def unban(ctx, user_id: str = None):
 @bot.command()
 async def kick(ctx, *, args: str = None):
     if str(ctx.author.id) not in KICK_COMMAND_USERS:
-        return await cmd_fail(ctx)
+        return
     user = None
     reason = "No reason"
     if ctx.message.mentions:
@@ -1454,7 +1454,7 @@ async def kick(ctx, *, args: str = None):
 @bot.command()
 async def clear(ctx, *args):
     if not has_perm(ctx.author, get_cmd_perm("clear")):
-        return await cmd_fail(ctx)
+        return
     amount = 10
     target = None
     if ctx.message.mentions:
@@ -1549,7 +1549,7 @@ def _resolve_text_channel(ctx, channel_arg: str = None):
 async def lock(ctx, channel: str = None):
     """Lock a channel — @everyone cannot send messages."""
     if not has_perm(ctx.author, get_cmd_perm("lock")):
-        return await cmd_fail(ctx)
+        return
     ch = _resolve_text_channel(ctx, channel)
     if ch is None:
         return await cmd_fail(ctx)
@@ -1596,7 +1596,7 @@ async def lock(ctx, channel: str = None):
 async def unlock(ctx, channel: str = None):
     """Unlock a channel — @everyone can send messages again."""
     if not has_perm(ctx.author, get_cmd_perm("unlock")):
-        return await cmd_fail(ctx)
+        return
     ch = _resolve_text_channel(ctx, channel)
     if ch is None:
         return await cmd_fail(ctx)
@@ -1672,7 +1672,7 @@ def find_role(guild, role_query: str):
 @bot.command()
 async def temprole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("temprole")):
-        return await cmd_fail(ctx)
+        return
     if not args:
         return await cmd_fail(ctx)
     rest = args
@@ -1726,7 +1726,7 @@ async def temprole(ctx, *, args: str = None):
     # Only SPECIAL_USERS can assign roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
         if str(ctx.author.id) not in SPECIAL_USERS:
-            return await cmd_fail(ctx)
+            return
     if role >= ctx.guild.me.top_role:
         return await cmd_fail(ctx)
     try:
@@ -1762,7 +1762,7 @@ async def temprole(ctx, *, args: str = None):
 @bot.command()
 async def addrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("addrole")) and not has_role_manage_extra(ctx.author):
-        return await cmd_fail(ctx)
+        return
     if not args:
         return await cmd_fail(ctx)
     user = None
@@ -1798,7 +1798,7 @@ async def addrole(ctx, *, args: str = None):
     # Only SPECIAL_USERS can assign roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
         if str(ctx.author.id) not in SPECIAL_USERS:
-            return await cmd_fail(ctx)
+            return
     if role >= ctx.guild.me.top_role:
         return await cmd_fail(ctx)
     if role in member.roles:
@@ -1812,7 +1812,7 @@ async def addrole(ctx, *, args: str = None):
 @bot.command()
 async def delrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("delrole")) and not has_role_manage_extra(ctx.author):
-        return await cmd_fail(ctx)
+        return
     if not args:
         return await cmd_fail(ctx)
     user = None
@@ -1848,7 +1848,7 @@ async def delrole(ctx, *, args: str = None):
     # Only SPECIAL_USERS can manage roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
         if str(ctx.author.id) not in SPECIAL_USERS:
-            return await cmd_fail(ctx)
+            return
     if role >= ctx.guild.me.top_role:
         return await cmd_fail(ctx)
     if role not in member.roles:
@@ -1862,7 +1862,7 @@ async def delrole(ctx, *, args: str = None):
 @bot.command()
 async def derank(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("derank")):
-        return await cmd_fail(ctx)
+        return
     user = await get_target(ctx, target)
     if not user:
         return await cmd_fail(ctx)
@@ -1884,7 +1884,7 @@ async def derank(ctx, target: str = None):
 @bot.command()
 async def create(ctx, emoji: str = None, *, name: str = None):
     if not has_perm(ctx.author, get_cmd_perm("create")):
-        return await cmd_fail(ctx)
+        return
     if emoji and not name:
         name = emoji
         emoji = None
@@ -1905,7 +1905,7 @@ async def create(ctx, emoji: str = None, *, name: str = None):
 @bot.command()
 async def rolemembers(ctx, *, role_query: str = None):
     if not has_perm(ctx.author, get_cmd_perm("rolemembers")):
-        return await cmd_fail(ctx)
+        return
     if not role_query:
         return await cmd_fail(ctx)
     role = discord.utils.find(
@@ -1930,7 +1930,7 @@ async def rolemembers(ctx, *, role_query: str = None):
 @bot.command()
 async def bl(ctx, *, args: str = None):
     if str(ctx.author.id) not in BL_COMMAND_USERS:
-        return await cmd_fail(ctx)
+        return
     user = None
     reason = "No reason"
     if ctx.message.mentions:
@@ -1989,7 +1989,7 @@ async def bl(ctx, *, args: str = None):
 @bot.command()
 async def unbl(ctx, user_id: str = None):
     if str(ctx.author.id) not in BL_COMMAND_USERS:
-        return await cmd_fail(ctx)
+        return
     if not user_id:
         return await cmd_fail(ctx)
     uid = user_id.strip()
@@ -2069,7 +2069,7 @@ async def serverinfo(ctx):
 @bot.command()
 async def modstats(ctx):
     if not has_perm(ctx.author, get_cmd_perm("modstats")):
-        return await cmd_fail(ctx)
+        return
     # Count sanctions issued by each moderator
     counts = {}
     for uid, entries in sanctions_data.items():
@@ -2095,7 +2095,7 @@ async def modstats(ctx):
 @bot.command()
 async def banlist(ctx):
     if not has_perm(ctx.author, get_cmd_perm("banlist")):
-        return await cmd_fail(ctx)
+        return
     try:
         bans = [entry async for entry in ctx.guild.bans(limit=50)]
     except discord.Forbidden:
@@ -2123,7 +2123,7 @@ async def banlist(ctx):
 @bot.command()
 async def baninfo(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("baninfo")):
-        return await cmd_fail(ctx)
+        return
     user = await get_target(ctx, target)
     if not user:
         return await cmd_fail(ctx)
@@ -2150,7 +2150,7 @@ async def baninfo(ctx, target: str = None):
 @bot.command()
 async def changeperm(ctx, command: str = None, level: str = None):
     if not has_perm(ctx.author, get_cmd_perm("changeperm")):
-        return await cmd_fail(ctx)
+        return
     if not command or level is None:
         return await ctx.send("Usage: `+changeperm <command> <level|none>`\nExample: `+changeperm warn 2` or `+changeperm clear none`")
     cmd = command.lower().strip()
