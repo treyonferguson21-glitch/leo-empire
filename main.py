@@ -1873,10 +1873,20 @@ async def derank(ctx, target: str = None):
         return await cmd_fail(ctx)
     if not can_moderate(ctx.author, member):
         return await ctx.send("You can't derank someone with an equal or higher staff rank.")
-    # INSTANTLY remove ALL roles (no delay, no staff log embed, no cooldown)
+    # Only remove staff roles from the perm hierarchy (Test Mod, Mod, Senior Mod, etc.)
+    # Non-staff roles (custom, color, boost VIP, etc.) are left alone.
     try:
-        roles = [r for r in member.roles if r != ctx.guild.default_role and not r.managed]
-        await member.remove_roles(*roles)
+        cache = resolve_role_ids(ctx.guild)
+        staff_ids = set()
+        for role_ids in cache.values():
+            staff_ids.update(role_ids)
+        roles = [
+            r for r in member.roles
+            if r.id in staff_ids and r != ctx.guild.default_role and not r.managed
+        ]
+        if not roles:
+            return await ctx.send("SONION 🧅")
+        await member.remove_roles(*roles, reason=f"Derank by {ctx.author}")
         await ctx.send(f"{member.mention} was deranked successfully")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
