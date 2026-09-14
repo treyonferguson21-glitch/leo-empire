@@ -96,7 +96,6 @@ ROLES = {
             1546192012435390515,  # Community Manager
             1548423059646578840,  # Staff Manager
             1545847662392119367,  # Head Manager
-            1534637036542365787,  # King
         ],
         "names": [
             "Administrator", "Admin", "ADMIN",
@@ -105,7 +104,6 @@ ROLES = {
             "Staff Manager",
             "Head Manager",
             "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord",
-            "King", "[ K ] • King",
         ],
     },
     5: {
@@ -1457,27 +1455,33 @@ async def clear(ctx, *args):
         return
     amount = 10
     target = None
+    explicit_amount = False
     if ctx.message.mentions:
         target = ctx.message.mentions[0]
         for a in reversed(args):
             if str(a).isdigit():
                 amount = int(a)
+                explicit_amount = True
                 break
     elif ctx.message.reference:
         target = await get_target(ctx, None)
         if args and str(args[0]).isdigit():
             amount = int(args[0])
+            explicit_amount = True
     elif args:
         if len(args) == 1 and str(args[0]).isdigit():
             num = int(args[0])
             if num > 10_000_000_000_000_000:
                 try:
                     target = await bot.fetch_user(num)
-                    amount = 100
+                    # +clear <user_id> with no amount → 14 days of that user
+                    explicit_amount = False
                 except Exception:
                     amount = max(1, min(num, 100))
+                    explicit_amount = True
             else:
                 amount = max(1, min(num, 100))
+                explicit_amount = True
         else:
             try:
                 target = await get_target(ctx, args[0])
@@ -1490,22 +1494,28 @@ async def clear(ctx, *args):
                     pass
             if len(args) > 1 and str(args[1]).isdigit():
                 amount = int(args[1])
-            elif target:
-                amount = 100
-    if target:
+                explicit_amount = True
+    if target and explicit_amount:
         amount = max(1, min(amount, 1000))
-    else:
+    elif not target:
         amount = max(1, min(amount, 100))
+
     def check(m):
         if m.id == ctx.message.id:
             return True
         if target is None:
             return True
         return m.author.id == target.id
+
     clearing_channels.add(ctx.channel.id)
     try:
         if target is None:
             await ctx.channel.purge(limit=amount + 1, check=check)
+        elif not explicit_amount:
+            # +clear @user (or reply / user id) with no number → all of their
+            # messages from the last 14 days (Discord bulk-delete limit)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+            await ctx.channel.purge(limit=None, check=check, after=cutoff)
         else:
             left = amount
             while left > 0:
