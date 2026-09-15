@@ -88,8 +88,12 @@ ROLES = {
         "ids": [
             1540434933166776400,  # Senior Mod
             1543926509520293908,  # Head Staff
+            1549534399387926709,  # Head Moderator
         ],
-        "names": ["Senior Mod", "Head Staff", "[ S ] • Senior Mod", "[ H ] • Head Staff"],
+        "names": [
+            "Senior Mod", "Head Staff", "Head Moderator",
+            "[ S ] • Senior Mod", "[ H ] • Head Staff", "[ HM ] • Head Moderator",
+        ],
     },
     4: {
         "ids": [
