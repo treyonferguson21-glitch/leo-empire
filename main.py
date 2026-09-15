@@ -164,6 +164,7 @@ SNIPE_FILE = "data/snipe.json"
 ROLE_PERMS_FILE = "data/role_perms.json"
 TEMPROLES_FILE = "data/temproles.json"
 COMMAND_PERMS_FILE = "data/command_perms.json"
+LINKED_ALTS_FILE = "data/linked_alts.json"
 
 def load_json(path, default):
     if os.path.exists(path):
@@ -183,6 +184,7 @@ role_perms = load_json(ROLE_PERMS_FILE, {})
 temproles_data = load_json(TEMPROLES_FILE, [])
 _temprole_tasks = {}
 command_overrides = load_json(COMMAND_PERMS_FILE, {})
+linked_alts = load_json(LINKED_ALTS_FILE, {})  # main_id (str) -> list of alt_ids (str)
 
 # Default required perm level per command (overridable via +changeperm)
 DEFAULT_COMMAND_PERMS = {
@@ -214,6 +216,7 @@ DEFAULT_COMMAND_PERMS = {
     "kick": 99,
     "bl": 99,
     "unbl": 99,
+    "linkalt": 99,
 }
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
@@ -222,6 +225,7 @@ def save_snipe(): save_json(SNIPE_FILE, snipe_data)
 def save_role_perms(): save_json(ROLE_PERMS_FILE, role_perms)
 def save_temproles(): save_json(TEMPROLES_FILE, temproles_data)
 def save_command_perms(): save_json(COMMAND_PERMS_FILE, command_overrides)
+def save_linked_alts(): save_json(LINKED_ALTS_FILE, linked_alts)
 
 def get_cmd_perm(name: str) -> int:
     key = name.lower().strip()
@@ -620,9 +624,25 @@ async def on_message_edit(before, after):
 
 @bot.event
 async def on_member_join(member):
+    # Blacklist check — ban immediately if this account ID is blacklisted
     if str(member.id) in blacklist:
         try:
-            await member.ban(reason="Blacklisted")
+            await member.ban(reason="Blacklisted (auto on join)")
+        except Exception:
+            pass
+        # Log the attempt so staff can see (useful if they later discover alts)
+        try:
+            log = discord.Embed(
+                title=f"✦ Blacklisted User Tried to Join — {BRAND_NAME}",
+                color=THEME_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
+            log.add_field(name="User", value=f"{member} (`{member.id}`)", inline=False)
+            log.add_field(name="Account Created", value=discord.utils.format_dt(member.created_at, "R"), inline=True)
+            log.add_field(name="Action", value="Auto-banned (ID on blacklist)", inline=True)
+            log.set_thumbnail(url=member.display_avatar.url)
+            log.set_footer(text=FOOTER_TEXT)
+            await send_log(log)
         except Exception:
             pass
         return
@@ -801,6 +821,111 @@ async def on_command_error(ctx, error):
         return
     return
 
+# ==================== HELP PAGES (paginated) ====================
+HELP_PAGES = [
+    {
+        "title": "Everyone",
+        "desc": (
+            f"**Prefix:** `{PREFIX}`\n"
+            "You can **reply** to a message instead of mentioning the user.\n\n"
+            "**Bot maker:** Mari · **Founder:** LEO"
+        ),
+        "fields": [
+            ("▸ Everyone", "`+userinfo` `+serverinfo` `+snipe` `+ping` `+help`"),
+        ],
+    },
+    {
+        "title": "Perm 1",
+        "desc": "Basic moderation tools",
+        "fields": [
+            ("▸ Perm 1", "`+warn <member> [reason]`\n`+tempmute <member> <duration> [reason]`\n`+unmute <member>`\n`+mutelist`\n`+sanctions <member>`\n`+perms`"),
+        ],
+    },
+    {
+        "title": "Perm 2 – 3",
+        "desc": "Mid-level staff",
+        "fields": [
+            ("▸ Perm 2", "`+del sanction <member> <number>`\n`+rolemembers <role>`"),
+            ("▸ Perm 3", "`+clearwarns <member>`"),
+        ],
+    },
+    {
+        "title": "Perm 4",
+        "desc": "Channel & role management",
+        "fields": [
+            ("▸ Perm 4", "`+clear [number] [member]`\n`+lock [channel]`\n`+unlock [channel]`\n`+create [emoji] [name]`\n`+derank <member>`\n`+addrole <member> <role>`\n`+delrole <member> <role>`"),
+        ],
+    },
+    {
+        "title": "Perm 5 – 6",
+        "desc": "Senior staff & management",
+        "fields": [
+            ("▸ Perm 5", "`+banlist`\n`+baninfo <id|mention>`\n`+blist`"),
+            ("▸ Perm 6", "`+temprole <member> <duration> <role>`\n`+modstats`\n`+changeperm <command> <level|none>`\n`+syncroles`"),
+        ],
+    },
+    {
+        "title": "Special Users only",
+        "desc": "Restricted to specific user IDs (not role-based)",
+        "fields": [
+            ("▸ Special", "`+ban`\n`+unban`\n`+kick`\n`+bl`\n`+unbl`\n`+linkalt <main> <alt>`"),
+        ],
+    },
+]
+
+class HelpView(discord.ui.View):
+    def __init__(self, author_id: int, timeout: float = 120):
+        super().__init__(timeout=timeout)
+        self.author_id = author_id
+        self.page = 0
+        self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Only the person who ran `+help` can use these buttons.", ephemeral=True)
+            return False
+        return True
+
+    def _build_embed(self) -> discord.Embed:
+        data = HELP_PAGES[self.page]
+        emb = discord.Embed(
+            title=f"✦ {BRAND_NAME} Help — {data['title']}",
+            description=data.get("desc", ""),
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        for name, value in data.get("fields", []):
+            emb.add_field(name=name, value=value, inline=False)
+        emb.set_footer(text=f"{FOOTER_TEXT}  •  Page {self.page + 1}/{len(HELP_PAGES)}  •  Use ◀ ▶ to slide")
+        return emb
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.page <= 0
+        self.next_btn.disabled = self.page >= len(HELP_PAGES) - 1
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page > 0:
+            self.page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page < len(HELP_PAGES) - 1:
+            self.page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 # ==================== COMMANDS ====================
 @bot.command()
 async def ping(ctx):
@@ -844,8 +969,45 @@ async def perms(ctx):
         if level == 6:
             value += "\n\n**Highest staff — advanced commands**"
         emb.add_field(name=f"▸ Perm {level}", value=value, inline=False)
+
+    # ---- Special command access (per user, visual mentions, no real ping) ----
+    # Collect every unique special user and which cmds they can use
+    user_cmds = {}  # uid(str) -> set of cmd names (no +)
+
+    for uid in BAN_COMMAND_USERS:
+        user_cmds.setdefault(str(uid), set()).update(["ban", "unban"])
+    for uid in BL_COMMAND_USERS:
+        user_cmds.setdefault(str(uid), set()).update(["bl", "unbl"])
+    for uid in KICK_COMMAND_USERS:
+        user_cmds.setdefault(str(uid), set()).add("kick")
+    for uid in SPECIAL_USERS:
+        user_cmds.setdefault(str(uid), set()).add("linkalt")
+
+    # Preferred display order of cmds
+    cmd_order = ["ban", "unban", "bl", "unbl", "kick", "linkalt"]
+
+    blocks = []
+    for uid in sorted(user_cmds.keys(), key=lambda x: x):
+        cmds = [c for c in cmd_order if c in user_cmds[uid]]
+        if not cmds:
+            continue
+        cmd_line = " ".join(cmds)
+        # Visual mention only — AllowedMentions(users=False) below so no real ping
+        blocks.append(f"<@{uid}>\n```\n{cmd_line}\n```")
+
+    special_value = "\n".join(blocks) if blocks else "*None*"
+    # Discord field value limit is 1024 chars
+    if len(special_value) > 1020:
+        special_value = special_value[:1017] + "..."
+
+    emb.add_field(
+        name="▸ Special Commands",
+        value=special_value,
+        inline=False,
+    )
+
     emb.set_footer(text=f"{FOOTER_TEXT}  •  Use +syncroles to rescan")
-    await ctx.send(embed=emb)
+    await ctx.send(embed=emb, allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False))
 
 @bot.command()
 async def syncroles(ctx):
@@ -2046,23 +2208,180 @@ async def unbl(ctx, user_id: str = None):
         await send_log(log)
     except Exception:
         await ctx.send(f"Removed `{uid}` from blacklist.")
+    # Also remove this ID from any linked_alts mappings
+    try:
+        changed = False
+        for main_id, alts in list(linked_alts.items()):
+            if uid in alts:
+                linked_alts[main_id] = [a for a in alts if a != uid]
+                if not linked_alts[main_id]:
+                    del linked_alts[main_id]
+                changed = True
+            if main_id == uid:
+                del linked_alts[main_id]
+                changed = True
+        if changed:
+            save_linked_alts()
+    except Exception:
+        pass
+
+@bot.command()
+async def linkalt(ctx, *, args: str = None):
+    """Link an alt account to a blacklisted main. Special users only.
+    Usage: +linkalt <main> <alt>
+    Adds the alt to the blacklist and records the link."""
+    if str(ctx.author.id) not in SPECIAL_USERS:
+        return
+    if not args:
+        return await ctx.send("Usage: `+linkalt <main_id|@main> <alt_id|@alt>`")
+
+    # Parse two targets
+    main_user = None
+    alt_user = None
+    rest = args.strip()
+
+    # Prefer mentions first
+    mentions = list(ctx.message.mentions)
+    if len(mentions) >= 2:
+        main_user = mentions[0]
+        alt_user = mentions[1]
+    elif len(mentions) == 1:
+        # One mention + one ID/name
+        tokens = rest.split()
+        # Remove mention text
+        for m in mentions:
+            rest = rest.replace(f"<@{m.id}>", "").replace(f"<@!{m.id}>", "")
+        rest = rest.strip()
+        other = await get_target(ctx, rest.split()[0] if rest else None) if rest else None
+        if other:
+            main_user = mentions[0]
+            alt_user = other
+    else:
+        parts = rest.split(None, 1)
+        if len(parts) >= 2:
+            main_user = await get_target(ctx, parts[0])
+            alt_user = await get_target(ctx, parts[1])
+        elif len(parts) == 1:
+            return await ctx.send("Usage: `+linkalt <main_id|@main> <alt_id|@alt>`")
+
+    if not main_user or not alt_user:
+        return await cmd_fail(ctx)
+    if main_user.id == alt_user.id:
+        return await ctx.send("Main and alt must be different accounts.")
+
+    main_id = str(main_user.id)
+    alt_id = str(alt_user.id)
+
+    # Add alt to blacklist
+    if alt_id not in blacklist:
+        blacklist.append(alt_id)
+        save_blacklist()
+
+    # Record the link
+    if main_id not in linked_alts:
+        linked_alts[main_id] = []
+    if alt_id not in linked_alts[main_id]:
+        linked_alts[main_id].append(alt_id)
+        save_linked_alts()
+
+    # Ban the alt if possible
+    ban_ok = False
+    try:
+        await ctx.guild.ban(alt_user, reason=f"Linked alt of blacklisted user {main_id}")
+        ban_ok = True
+    except Exception:
+        pass
+
+    # Also ensure main is on blacklist (optional but helpful)
+    if main_id not in blacklist:
+        blacklist.append(main_id)
+        save_blacklist()
+
+    emb = discord.Embed(
+        title=f"✦ Link Alt — {BRAND_NAME}",
+        description=(
+            f"Linked **{alt_user}** as an alt of **{main_user}**.\n"
+            f"Alt has been added to the blacklist"
+            + (" and banned." if ban_ok else " (could not ban — user may not be in server).")
+        ),
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.add_field(name="Main", value=f"{main_user} (`{main_id}`)", inline=True)
+    emb.add_field(name="Alt", value=f"{alt_user} (`{alt_id}`)", inline=True)
+    emb.set_footer(text=FOOTER_TEXT)
+    await ctx.send(embed=emb)
+
+    log = discord.Embed(
+        title=f"✦ Link Alt — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    log.add_field(name="Main", value=f"{main_user} (`{main_id}`)", inline=False)
+    log.add_field(name="Alt", value=f"{alt_user} (`{alt_id}`)", inline=False)
+    log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+    log.add_field(name="Banned", value="Yes" if ban_ok else "No", inline=True)
+    log.set_footer(text=FOOTER_TEXT)
+    await send_log(log)
 
 @bot.command()
 async def blist(ctx):
     """Show all users currently on the server blacklist (related to +bl / +unbl)."""
     if not has_perm(ctx.author, get_cmd_perm("blist")):
         return
-    if not blacklist:
+
+    # 1) IDs stored in blacklist.json
+    from_file = set(str(uid) for uid in blacklist)
+
+    # 2) Also scan current server bans whose reason mentions blacklist
+    from_bans = {}
+    try:
+        async for entry in ctx.guild.bans(limit=200):
+            reason = (entry.reason or "").lower()
+            if "blacklist" in reason or "blacklisted" in reason:
+                from_bans[str(entry.user.id)] = entry
+    except discord.Forbidden:
+        pass
+    except Exception as e:
+        print(f"blist ban scan failed: {e}")
+
+    all_ids = list(from_file | set(from_bans.keys()))
+    if not all_ids:
         return await empty_result(ctx, "There are no blacklisted users.")
+
+    # Build reverse map: alt_id -> main_id for display
+    alt_to_main = {}
+    for main_id, alts in linked_alts.items():
+        for a in alts:
+            alt_to_main[str(a)] = str(main_id)
+
     lines = []
     shown = 0
-    for uid in list(blacklist)[:50]:
+    for uid in all_ids[:50]:
+        source = []
+        if uid in from_file:
+            source.append("list")
+        if uid in from_bans:
+            source.append("ban")
+        src = " + ".join(source) if source else "?"
+        link_note = ""
+        if uid in alt_to_main:
+            link_note = f" 🔗 alt of `{alt_to_main[uid]}`"
+        elif uid in linked_alts and linked_alts[uid]:
+            link_note = f" 🔗 main ({len(linked_alts[uid])} alt(s))"
         try:
-            user = await bot.fetch_user(int(uid))
-            lines.append(f"**{user}** (`{user.id}`)")
+            if uid in from_bans:
+                user = from_bans[uid].user
+            else:
+                user = await bot.fetch_user(int(uid))
+            reason = ""
+            if uid in from_bans and from_bans[uid].reason:
+                reason = f"\n↳ {from_bans[uid].reason[:80]}"
+            lines.append(f"**{user}** (`{user.id}`) [{src}]{link_note}{reason}")
         except Exception:
-            lines.append(f"Unknown User (`{uid}`)")
+            lines.append(f"Unknown User (`{uid}`) [{src}]{link_note}")
         shown += 1
+
     emb = discord.Embed(
         title=f"✦ Blacklist — {BRAND_NAME}",
         description="\n".join(lines) if lines else "*Empty*",
@@ -2072,13 +2391,16 @@ async def blist(ctx):
     emb.add_field(
         name="Info",
         value=(
-            "These users are **banned + blacklisted**.\n"
-            "They are auto-banned on join.\n"
-            "Use `+unbl <user_id>` to remove."
+            "These users are **banned + blacklisted** and are **auto-banned on join**.\n"
+            "Use `+linkalt <main> <alt>` (special users) to mark and blacklist an alt.\n"
+            "Use `+unbl <user_id>` to remove from the blacklist."
         ),
         inline=False,
     )
-    emb.set_footer(text=f"{FOOTER_TEXT}  •  {shown} blacklisted" + (" (showing up to 50)" if len(blacklist) > 50 else ""))
+    emb.set_footer(
+        text=f"{FOOTER_TEXT}  •  {shown} blacklisted"
+        + (" (showing up to 50)" if len(all_ids) > 50 else "")
+    )
     await ctx.send(embed=emb)
 
 @bot.command()
@@ -2233,58 +2555,11 @@ async def changeperm(ctx, command: str = None, level: str = None):
 
 @bot.command()
 async def help(ctx):
-    emb = discord.Embed(
-        title=f"✦ {BRAND_NAME} Command List",
-        color=THEME_COLOR,
-        description=(
-            f"**Prefix:** `{PREFIX}`\n"
-            "You can **reply** to a message instead of mentioning the user.\n\n"
-            "**Bot maker:** Mari · **Founder:** LEO"
-        ),
-        timestamp=datetime.now(timezone.utc),
-    )
-    emb.add_field(
-        name="▸ Perm 1",
-        value="`+help` `+warn <member> [reason]` `+mutelist` `+perms` `+sanctions <member>` `+tempmute <member> <duration> [reason]` `+unmute <member>`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Perm 2",
-        value="`+del sanction <member> <number>` `+rolemembers <role>`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Perm 3",
-        value="`+clearwarns <member>`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Perm 4",
-        value="`+clear [number] [member]` `+lock [channel]` `+unlock [channel]` `+create [emoji] [name]` `+derank <member>` `+addrole <member> <role>` `+delrole <member> <role>`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Perm 5",
-        value="`+banlist` `+baninfo <id|mention>` `+blist`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Perm 6",
-        value="`+temprole <member> <duration> <role>` `+modstats` `+changeperm <command> <level|none>` `+syncroles`",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Special Users only",
-        value="`+ban` `+unban` `+kick` `+bl` `+unbl` (user ID only)",
-        inline=False
-    )
-    emb.add_field(
-        name="▸ Everyone",
-        value="`+userinfo` `+serverinfo` `+snipe` `+ping`",
-        inline=False
-    )
-    emb.set_footer(text=f"{FOOTER_TEXT}  •  Founder: LEO")
-    await ctx.send(embed=emb)
+    view = HelpView(author_id=ctx.author.id)
+    view._update_buttons()
+    emb = view._build_embed()
+    msg = await ctx.send(embed=emb, view=view)
+    view.message = msg
 
 # ==================== APPEAL SYSTEM ====================
 async def dm_ban_appeal(user, reason: str = "No reason"):
