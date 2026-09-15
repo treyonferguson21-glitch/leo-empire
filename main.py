@@ -207,6 +207,7 @@ DEFAULT_COMMAND_PERMS = {
     "modstats": 6,
     "banlist": 5,
     "baninfo": 5,
+    "blist": 5,
     "changeperm": 6,
     "ban": 99,  # special users only (handled separately)
     "unban": 99,
@@ -2047,6 +2048,40 @@ async def unbl(ctx, user_id: str = None):
         await ctx.send(f"Removed `{uid}` from blacklist.")
 
 @bot.command()
+async def blist(ctx):
+    """Show all users currently on the server blacklist (related to +bl / +unbl)."""
+    if not has_perm(ctx.author, get_cmd_perm("blist")):
+        return
+    if not blacklist:
+        return await empty_result(ctx, "There are no blacklisted users.")
+    lines = []
+    shown = 0
+    for uid in list(blacklist)[:50]:
+        try:
+            user = await bot.fetch_user(int(uid))
+            lines.append(f"**{user}** (`{user.id}`)")
+        except Exception:
+            lines.append(f"Unknown User (`{uid}`)")
+        shown += 1
+    emb = discord.Embed(
+        title=f"✦ Blacklist — {BRAND_NAME}",
+        description="\n".join(lines) if lines else "*Empty*",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.add_field(
+        name="Info",
+        value=(
+            "These users are **banned + blacklisted**.\n"
+            "They are auto-banned on join.\n"
+            "Use `+unbl <user_id>` to remove."
+        ),
+        inline=False,
+    )
+    emb.set_footer(text=f"{FOOTER_TEXT}  •  {shown} blacklisted" + (" (showing up to 50)" if len(blacklist) > 50 else ""))
+    await ctx.send(embed=emb)
+
+@bot.command()
 async def userinfo(ctx, target: str = None):
     user = await get_target(ctx, target) or ctx.author
     member = ctx.guild.get_member(user.id)
@@ -2230,7 +2265,7 @@ async def help(ctx):
     )
     emb.add_field(
         name="▸ Perm 5",
-        value="`+banlist` `+baninfo <id|mention>`",
+        value="`+banlist` `+baninfo <id|mention>` `+blist`",
         inline=False
     )
     emb.add_field(
