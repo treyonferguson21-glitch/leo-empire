@@ -46,6 +46,7 @@ BAN_COMMAND_USERS = [
     "1391635894045380619",
     "1532561566271017009",
     "1536409975008657500",
+    "1513161805818757320",
 ]
 
 # +kick only
@@ -54,6 +55,7 @@ KICK_COMMAND_USERS = [
     "1391635894045380619",
     "1532561566271017009",
     "1536409975008657500",
+    "1513161805818757320",
 ]
 
 # +bl +unbl only
@@ -203,7 +205,7 @@ DEFAULT_COMMAND_PERMS = {
     "clear": 4,
     "lock": 4,
     "unlock": 4,
-    "create": 4,
+    "create": 99,  # special users only (handled separately)
     "temprole": 6,
     "syncroles": 6,
     "modstats": 6,
@@ -853,7 +855,7 @@ HELP_PAGES = [
         "title": "Perm 4",
         "desc": "Channel & role management",
         "fields": [
-            ("▸ Perm 4", "`+clear [number] [member]`\n`+lock [channel]`\n`+unlock [channel]`\n`+create [emoji] [name]`\n`+derank <member>`\n`+addrole <member> <role>`\n`+delrole <member> <role>`"),
+            ("▸ Perm 4", "`+clear [number] [member]`\n`+lock [channel]`\n`+unlock [channel]`\n`+derank <member>`\n`+addrole <member> <role>`\n`+delrole <member> <role>`"),
         ],
     },
     {
@@ -868,7 +870,7 @@ HELP_PAGES = [
         "title": "Special Users only",
         "desc": "Restricted to specific user IDs (not role-based)",
         "fields": [
-            ("▸ Special", "`+ban`\n`+unban`\n`+kick`\n`+bl`\n`+unbl`\n`+linkalt <main> <alt>`"),
+            ("▸ Special", "`+ban`\n`+unban`\n`+kick`\n`+bl`\n`+unbl`\n`+linkalt <main> <alt>`\n`+create [emoji] [name]`"),
         ],
     },
 ]
@@ -981,19 +983,21 @@ async def perms(ctx):
     for uid in KICK_COMMAND_USERS:
         user_cmds.setdefault(str(uid), set()).add("kick")
     for uid in SPECIAL_USERS:
-        user_cmds.setdefault(str(uid), set()).add("linkalt")
+        user_cmds.setdefault(str(uid), set()).update(["linkalt", "create"])
 
     # Preferred display order of cmds
-    cmd_order = ["ban", "unban", "bl", "unbl", "kick", "linkalt"]
+    cmd_order = ["ban", "unban", "bl", "unbl", "kick", "linkalt", "create"]
 
+    # Vertical command boxes (one cmd per line) — taller rectangles instead of sideways
     blocks = []
     for uid in sorted(user_cmds.keys(), key=lambda x: x):
         cmds = [c for c in cmd_order if c in user_cmds[uid]]
         if not cmds:
             continue
-        cmd_line = " ".join(cmds)
+        # Stack commands vertically (one per line)
+        cmd_block = "\n".join(cmds)
         # Visual mention only — AllowedMentions(users=False) below so no real ping
-        blocks.append(f"<@{uid}>\n```\n{cmd_line}\n```")
+        blocks.append(f"<@{uid}>\n```\n{cmd_block}\n```")
 
     special_value = "\n".join(blocks) if blocks else "*None*"
     # Discord field value limit is 1024 chars
@@ -2066,7 +2070,7 @@ async def derank(ctx, target: str = None):
 
 @bot.command()
 async def create(ctx, emoji: str = None, *, name: str = None):
-    if not has_perm(ctx.author, get_cmd_perm("create")):
+    if str(ctx.author.id) not in SPECIAL_USERS:
         return
     if emoji and not name:
         name = emoji
