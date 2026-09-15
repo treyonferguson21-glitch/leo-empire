@@ -109,10 +109,6 @@ ROLES = {
     4: {
         "slots": [
             {
-                "ids": [1545847662392119367],
-                "names": ["Head Manager", "HEAD MANAGER"],
-            },
-            {
                 "ids": [1512494871171043540],
                 "names": ["Administrator", "Admin", "ADMIN", "[ A ] • ADMIN"],
             },
@@ -120,10 +116,18 @@ ROLES = {
                 "ids": [1512494871171043541],
                 "names": ["Manager", "Server-Manager", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
             },
+            {
+                "ids": [1545847662392119367],
+                "names": ["Head Manager", "HEAD MANAGER"],
+            },
         ],
     },
     5: {
         "slots": [
+            {
+                "ids": [1546912446004994108],
+                "names": ["Supervisor"],
+            },
             {
                 "ids": [1544803993480466563],
                 "names": ["Co - Owner", "Co-Owner", "Co owners", "Co Owner", "[ CO ] • Co - Owner"],
@@ -132,21 +136,17 @@ ROLES = {
                 "ids": [1512494871171043543],
                 "names": ["Owners", "[ O ] • Owners"],
             },
-            {
-                "ids": [1546912446004994108],
-                "names": ["Supervisor"],
-            },
         ],
     },
     6: {
         "slots": [
             {
-                "ids": [1545842045258825809],
-                "names": ["Creator", "[ C ] • Creator"],
-            },
-            {
                 "ids": [1540425618620162139],
                 "names": ["FOUNDER", "Founder", "[ F ] • FOUNDER"],
+            },
+            {
+                "ids": [1545842045258825809],
+                "names": ["Creator", "[ C ] • Creator"],
             },
         ],
     },
