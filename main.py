@@ -70,68 +70,84 @@ ROLE_MANAGE_EXTRA_IDS = [
     1547401287392301216,  # Head of Recruitment
 ]
 
-# Exact role names from your server (used once to find role IDs).
-# After the bot finds them, it saves the ROLE IDs — so if you rename a role,
-# permissions still work without updating this list.
+# Staff hierarchy. Each "slot" is one role position in the +perms panel (top → bottom).
+# Order of slots = display order. For each slot we try IDs first, then names.
+# Higher level = higher staff. Higher staff can moderate lower staff.
 ROLES = {
-    # Perm level -> role IDs (primary) + optional names (display / fallback only)
-    # Higher level = higher staff. Higher staff can moderate lower staff.
     1: {
-        "ids": [1540435355633975366],  # Test Moderator
-        "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"],
+        "slots": [
+            {
+                "ids": [1540435355633975366],
+                "names": ["Test Moderator", "Test Mod", "[ TM ] • Test Mod"],
+            },
+        ],
     },
     2: {
-        "ids": [1512494871158591779],  # Moderator
-        "names": ["Moderator", "[ S ] • Moderator"],
+        "slots": [
+            {
+                "ids": [1512494871158591779],
+                "names": ["Moderator", "[ S ] • Moderator"],
+            },
+            {
+                "ids": [1540434933166776400],
+                "names": ["Senior Mod", "[ S ] • Senior Mod"],
+            },
+        ],
     },
     3: {
-        "ids": [
-            1540434933166776400,  # Senior Mod
-            1543926509520293908,  # Head Staff
-            1549534399387926709,  # Head Moderator
-        ],
-        "names": [
-            "Senior Mod", "Head Staff", "Head Moderator",
-            "[ S ] • Senior Mod", "[ H ] • Head Staff", "[ HM ] • Head Moderator",
+        "slots": [
+            {
+                "ids": [1543926509520293908],
+                "names": ["Head Staff", "[ H ] • Head Staff"],
+            },
+            {
+                "ids": [1549534399387926709],
+                "names": ["Head Moderator", "[ HM ] • Head Moderator"],
+            },
         ],
     },
     4: {
-        "ids": [
-            1512494871171043540,  # Administrator
-            1512494871171043541,  # Manager
-            1546192012435390515,  # Community Manager
-            1548423059646578840,  # Staff Manager
-            1545847662392119367,  # Head Manager
-        ],
-        "names": [
-            "Administrator", "Admin", "ADMIN",
-            "Manager", "Server-Manager",
-            "Community Manager",
-            "Staff Manager",
-            "Head Manager",
-            "[ A ] • ADMIN", "[ SM ] • Server-Manager", "[ OV ] • Overlord",
+        "slots": [
+            {
+                "ids": [1545847662392119367],
+                "names": ["Head Manager", "HEAD MANAGER"],
+            },
+            {
+                "ids": [1512494871171043540],
+                "names": ["Administrator", "Admin", "ADMIN", "[ A ] • ADMIN"],
+            },
+            {
+                "ids": [1512494871171043541],
+                "names": ["Manager", "Server-Manager", "[ SM ] • Server-Manager", "[ OV ] • Overlord"],
+            },
         ],
     },
     5: {
-        "ids": [
-            1546912446004994108,  # Supervisor
-            1544803993480466563,  # Co Owner
-            1512494871171043543,  # Owners
-        ],
-        "names": [
-            "Supervisor",
-            "Co - Owner", "Co-Owner", "Co owners", "Co Owner", "[ CO ] • Co - Owner",
-            "Owners", "[ O ] • Owners",
+        "slots": [
+            {
+                "ids": [1544803993480466563],
+                "names": ["Co - Owner", "Co-Owner", "Co owners", "Co Owner", "[ CO ] • Co - Owner"],
+            },
+            {
+                "ids": [1512494871171043543],
+                "names": ["Owners", "[ O ] • Owners"],
+            },
+            {
+                "ids": [1546912446004994108],
+                "names": ["Supervisor"],
+            },
         ],
     },
     6: {
-        "ids": [
-            1540425618620162139,  # Founder
-            1545842045258825809,  # Creator
-        ],
-        "names": [
-            "FOUNDER", "Founder", "[ F ] • FOUNDER",
-            "Creator", "[ C ] • Creator",
+        "slots": [
+            {
+                "ids": [1545842045258825809],
+                "names": ["Creator", "[ C ] • Creator"],
+            },
+            {
+                "ids": [1540425618620162139],
+                "names": ["FOUNDER", "Founder", "[ F ] • FOUNDER"],
+            },
         ],
     },
 }
@@ -172,15 +188,18 @@ TEMPROLES_FILE = "data/temproles.json"
 COMMAND_PERMS_FILE = "data/command_perms.json"
 LINKED_ALTS_FILE = "data/linked_alts.json"
 
+
 def load_json(path, default):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return default
 
+
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
 
 sanctions_data = load_json(SANCTIONS_FILE, {})
 blacklist = load_json(BLACKLIST_FILE, [])
@@ -223,7 +242,9 @@ DEFAULT_COMMAND_PERMS = {
     "bl": 99,
     "unbl": 99,
     "linkalt": 5,
+    "roleall": 99,  # SPECIAL_USERS only — not shown in +perms panel
 }
+
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
 def save_blacklist(): save_json(BLACKLIST_FILE, blacklist)
@@ -232,6 +253,7 @@ def save_role_perms(): save_json(ROLE_PERMS_FILE, role_perms)
 def save_temproles(): save_json(TEMPROLES_FILE, temproles_data)
 def save_command_perms(): save_json(COMMAND_PERMS_FILE, command_overrides)
 def save_linked_alts(): save_json(LINKED_ALTS_FILE, linked_alts)
+
 
 def get_cmd_perm(name: str) -> int:
     key = name.lower().strip()
@@ -244,6 +266,7 @@ def get_cmd_perm(name: str) -> int:
         except Exception:
             return DEFAULT_COMMAND_PERMS.get(key, 5)
     return DEFAULT_COMMAND_PERMS.get(key, 5)
+
 
 # ==================== HELPERS ====================
 def _match_role_exact(guild: discord.Guild, name: str):
@@ -263,34 +286,51 @@ def _match_role_exact(guild: discord.Guild, name: str):
             return role
     return None
 
+
 def resolve_role_ids(guild: discord.Guild, force: bool = False) -> dict:
+    """Return dict[level -> list of role IDs] — order matches ROLES slots (top → bottom).
+
+    Each slot is resolved independently (ID first, then names). Stale IDs cannot
+    reorder other roles.
+    """
     gid = str(guild.id)
     mapping = {}
     used_ids = set()
+    # Higher levels first so a role claimed at a higher perm isn't also listed lower
     for level in sorted(ROLES.keys(), reverse=True):
         entry = ROLES[level]
         found = []
-        if isinstance(entry, dict):
-            for rid in entry.get("ids", []):
-                if rid not in used_ids:
-                    found.append(rid)
-                    used_ids.add(rid)
-            for name in entry.get("names", []):
-                role = _match_role_exact(guild, name)
-                if role and role.id not in used_ids:
-                    found.append(role.id)
-                    used_ids.add(role.id)
+        slots = []
+        if isinstance(entry, dict) and entry.get("slots"):
+            slots = entry["slots"]
+        elif isinstance(entry, dict):
+            # Legacy shape: single pool of ids + names
+            slots = [{"ids": entry.get("ids", []), "names": entry.get("names", [])}]
         else:
-            for name in entry:
-                role = _match_role_exact(guild, name)
-                if role and role.id not in used_ids:
-                    found.append(role.id)
-                    used_ids.add(role.id)
+            slots = [{"ids": [], "names": list(entry)}]
+        for slot in slots:
+            picked = None
+            for rid in slot.get("ids", []):
+                if rid in used_ids:
+                    continue
+                role = guild.get_role(rid)
+                if role is not None:
+                    picked = rid
+                    break
+            if picked is None:
+                for name in slot.get("names", []):
+                    role = _match_role_exact(guild, name)
+                    if role and role.id not in used_ids:
+                        picked = role.id
+                        break
+            if picked is not None:
+                found.append(picked)
+                used_ids.add(picked)
         mapping[level] = found
-
     role_perms[gid] = {str(k): v for k, v in mapping.items()}
     save_role_perms()
-    return {k: set(v) for k, v in mapping.items()}
+    return mapping  # dict[int, list[int]] — slot order preserved
+
 
 def get_perm_level(member: discord.Member) -> int:
     if str(member.id) in SPECIAL_USERS:
@@ -301,12 +341,14 @@ def get_perm_level(member: discord.Member) -> int:
     member_ids = {r.id for r in member.roles}
     highest = 0
     for level, role_ids in cache.items():
-        if member_ids & role_ids:
+        if member_ids & set(role_ids):  # convert list → set for intersection
             highest = max(highest, level)
     return highest
 
+
 def has_perm(member: discord.Member, level: int) -> bool:
     return get_perm_level(member) >= level
+
 
 def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
     """Higher staff perm level can moderate lower staff — ignores Discord role position."""
@@ -330,12 +372,14 @@ def can_moderate(moderator: discord.Member, target: discord.Member) -> bool:
     # Staff targets: only strictly higher staff perm level (not Discord top_role)
     return mod_level > target_level
 
+
 def has_role_manage_extra(member: discord.Member) -> bool:
     """True if member has a role in ROLE_MANAGE_EXTRA_IDS (addrole/delrole only)."""
     if not member or not getattr(member, "roles", None):
         return False
     extra = set(ROLE_MANAGE_EXTRA_IDS)
     return any(r.id in extra for r in member.roles)
+
 
 # ==================== EVENTS ====================
 @bot.event
@@ -359,6 +403,7 @@ async def on_ready():
         print(f"Temp roles restored: {len(temproles_data)} pending")
     except Exception as e:
         print(f"Temp role restore failed: {e}")
+
 
 # ==================== EVENTS (all the rest) ====================
 @bot.event
@@ -417,7 +462,6 @@ async def on_message_delete(message):
         "stickers": stickers,
     }
     save_snipe()
-
     # ---- Message log panel (delete) ----
     try:
         display_content = content if content else "*attachment only*"
@@ -426,7 +470,6 @@ async def on_message_delete(message):
         display_content = censor_blacklisted(display_content) if display_content else "*no text*"
         if len(display_content) > 1000:
             display_content = display_content[:997] + "..."
-
         emb = discord.Embed(
             description=(
                 f"**Message by** {message.author.mention} **deleted in** {message.channel.mention}\n\n"
@@ -459,6 +502,7 @@ async def on_message_delete(message):
         await send_message_log(emb)
     except Exception as e:
         print(f"Message delete log failed: {e}")
+
 
 @bot.event
 async def on_bulk_message_delete(messages):
@@ -502,6 +546,7 @@ async def on_bulk_message_delete(messages):
     except Exception as e:
         print(f"Bulk delete log failed: {e}")
 
+
 async def filter_bad_content(message) -> bool:
     if not message.guild or message.author.bot:
         return False
@@ -543,7 +588,6 @@ async def filter_bad_content(message) -> bool:
             emb.set_footer(text=FOOTER_TEXT)
             await send_log(emb)
             return True
-
     # Whole-word only — partial matches inside other words are ignored
     hits = _find_blacklisted(content)
     if hits:
@@ -575,8 +619,8 @@ async def filter_bad_content(message) -> bool:
         emb.set_footer(text=FOOTER_TEXT)
         await send_log(emb)
         return True
-
     return False
+
 
 @bot.event
 async def on_message(message):
@@ -594,13 +638,13 @@ async def on_message(message):
             return
     await bot.process_commands(message)
 
+
 @bot.event
 async def on_message_edit(before, after):
     if after.author.bot or not after.guild:
         return
     if (before.content or "") == (after.content or ""):
         return
-
     # ---- Message log panel (edit) ----
     try:
         before_text = before.content or "*empty*"
@@ -611,7 +655,6 @@ async def on_message_edit(before, after):
             after_text = after_text[:497] + "..."
         before_text = censor_blacklisted(before_text)
         after_text = censor_blacklisted(after_text)
-
         emb = discord.Embed(
             description=(
                 f"**Message by** {after.author.mention} **edited in** {after.channel.mention}\n\n"
@@ -634,8 +677,8 @@ async def on_message_edit(before, after):
         await send_message_log(emb)
     except Exception as e:
         print(f"Message edit log failed: {e}")
-
     await filter_bad_content(after)
+
 
 @bot.event
 async def on_member_join(member):
@@ -691,6 +734,7 @@ async def on_member_join(member):
     except Exception as e:
         print(f"Welcome message failed: {e}")
 
+
 @bot.event
 async def on_member_remove(member):
     try:
@@ -729,6 +773,7 @@ async def on_member_remove(member):
     except Exception as e:
         print(f"Leave message failed: {e}")
 
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     # ---------- BOOST DETECTION (Leo's Middleman) ----------
@@ -741,7 +786,6 @@ async def on_member_update(before: discord.Member, after: discord.Member):
                     await after.add_roles(role, reason="Server boost reward — VIP")
                 except Exception as e:
                     print(f"Failed to give boost role: {e}")
-
             # Build thank-you embed (LEOS MM themed)
             server_boosts = after.guild.premium_subscription_count or 0
             emb = discord.Embed(
@@ -768,7 +812,6 @@ async def on_member_update(before: discord.Member, after: discord.Member):
                 print(f"Boost thank-you message failed: {e}")
     except Exception as e:
         print(f"Boost check error: {e}")
-
     # ---------- TIMEOUT TRACKING (existing) ----------
     try:
         before_to = before.timed_out_until
@@ -821,6 +864,7 @@ async def on_member_update(before: discord.Member, after: discord.Member):
         log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
 
+
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
@@ -835,6 +879,7 @@ async def on_command_error(ctx, error):
             pass
         return
     return
+
 
 # ==================== HELP PAGES (paginated) ====================
 HELP_PAGES = [
@@ -887,6 +932,7 @@ HELP_PAGES = [
         ],
     },
 ]
+
 
 class HelpView(discord.ui.View):
     def __init__(self, author_id: int, timeout: float = 120):
@@ -941,6 +987,7 @@ class HelpView(discord.ui.View):
             except Exception:
                 pass
 
+
 # ==================== COMMANDS ====================
 @bot.command()
 async def ping(ctx):
@@ -952,6 +999,7 @@ async def ping(ctx):
     )
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def perms(ctx):
@@ -965,7 +1013,8 @@ async def perms(ctx):
     for level in sorted(ROLES.keys()):
         mentions = []
         seen = set()
-        for rid in cache.get(level, set()):
+        # Iterate the ordered list from resolve_role_ids (not a set)
+        for rid in cache.get(level, []):
             if rid in seen:
                 continue
             role = ctx.guild.get_role(rid)
@@ -973,22 +1022,12 @@ async def perms(ctx):
                 continue
             seen.add(rid)
             mentions.append(role.mention)
-        entry = ROLES.get(level, {})
-        names = entry.get("names", []) if isinstance(entry, dict) else []
-        for name in names:
-            role = discord.utils.find(lambda r, n=name: r.name == n or r.name.lower() == n.lower(), ctx.guild.roles)
-            if role and role.id not in seen:
-                seen.add(role.id)
-                mentions.append(role.mention)
         value = "\n".join(mentions) if mentions else "*None found*"
         if level == 6:
             value += "\n\n**Highest staff — advanced commands**"
         emb.add_field(name=f"▸ Perm {level}", value=value, inline=False)
-
     # ---- Special command access (per user, visual mentions, no real ping) ----
-    # Collect every unique special user and which cmds they can use
     user_cmds = {}  # uid(str) -> set of cmd names (no +)
-
     for uid in BAN_COMMAND_USERS:
         user_cmds.setdefault(str(uid), set()).update(["ban", "unban"])
     for uid in BL_COMMAND_USERS:
@@ -997,7 +1036,6 @@ async def perms(ctx):
         user_cmds.setdefault(str(uid), set()).add("kick")
     # Preferred display order of cmds
     cmd_order = ["ban", "unban", "bl", "unbl", "kick"]
-
     # Compact single-line command boxes (smaller height)
     blocks = []
     for uid in sorted(user_cmds.keys(), key=lambda x: x):
@@ -1007,20 +1045,18 @@ async def perms(ctx):
         cmd_line = " ".join(cmds)
         # Visual mention only — AllowedMentions(users=False) below so no real ping
         blocks.append(f"<@{uid}>\n```\n{cmd_line}\n```")
-
     special_value = "\n".join(blocks) if blocks else "*None*"
     # Discord field value limit is 1024 chars
     if len(special_value) > 1020:
         special_value = special_value[:1017] + "..."
-
     emb.add_field(
         name="▸ Special Commands",
         value=special_value,
         inline=False,
     )
-
     emb.set_footer(text=f"{FOOTER_TEXT}  •  Use +syncroles to rescan")
     await ctx.send(embed=emb, allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False))
+
 
 @bot.command()
 async def syncroles(ctx):
@@ -1030,7 +1066,7 @@ async def syncroles(ctx):
     lines = []
     for level in sorted(cache.keys()):
         roles = []
-        for rid in cache[level]:
+        for rid in cache[level]:  # already ordered list
             role = ctx.guild.get_role(rid)
             if role:
                 roles.append(role.mention)
@@ -1043,6 +1079,7 @@ async def syncroles(ctx):
     )
     emb.set_footer(text=f"{FOOTER_TEXT}  •  Role IDs saved")
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def snipe(ctx):
@@ -1069,7 +1106,6 @@ async def snipe(ctx):
         except Exception:
             pass
     emb.add_field(name="Deleted", value=deleted_text, inline=True)
-
     # Prefer stored image_url, then any image/gif attachment (proxy_url first)
     img = data.get("image_url")
     if not img:
@@ -1085,7 +1121,6 @@ async def snipe(ctx):
                     break
     if img:
         emb.set_image(url=img)
-
     other = []
     for att in data.get("attachments") or []:
         fname = (att.get("filename") or "").lower()
@@ -1100,6 +1135,7 @@ async def snipe(ctx):
         emb.add_field(name="Files", value="\n".join(other[:5]), inline=False)
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
+
 
 @bot.command(aliases=["warns", "sanction"])
 async def sanctions(ctx, target: str = None):
@@ -1170,6 +1206,7 @@ async def sanctions(ctx, target: str = None):
     except Exception as e:
         await ctx.send(f"Failed to load sanctions: `{e}`")
 
+
 @bot.command(name="del")
 async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = None):
     if action != "sanction":
@@ -1228,6 +1265,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
     log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
+
 @bot.command()
 async def warn(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("warn")):
@@ -1277,6 +1315,7 @@ async def warn(ctx, *, args: str = None):
     log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
+
 @bot.command()
 async def clearwarns(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("clearwarns")):
@@ -1306,6 +1345,7 @@ async def clearwarns(ctx, target: str = None):
     log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
     log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
+
 
 @bot.command()
 async def tempmute(ctx, *, args: str = None):
@@ -1380,6 +1420,7 @@ async def tempmute(ctx, *, args: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 @bot.command()
 async def unmute(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("unmute")):
@@ -1414,6 +1455,7 @@ async def unmute(ctx, target: str = None):
     except Exception as e:
         await ctx.send(f"Failed to unmute: {e}")
 
+
 @bot.command()
 async def mutelist(ctx):
     if not has_perm(ctx.author, get_cmd_perm("mutelist")):
@@ -1422,6 +1464,7 @@ async def mutelist(ctx):
     if not muted:
         return await empty_result(ctx, "There are no muted members.")
     muted.sort(key=lambda m: m.timed_out_until, reverse=True)
+
     def format_remaining(until):
         now = datetime.now(timezone.utc)
         if until.tzinfo is None:
@@ -1434,6 +1477,7 @@ async def mutelist(ctx):
         hours = (total_seconds % 86400) // 3600
         minutes = (total_seconds % 3600) // 60
         return f"{days}.0 days {hours}.0 hours and {minutes}.0 minutes"
+
     lines = []
     max_show = 40
     for m in muted[:max_show]:
@@ -1452,14 +1496,13 @@ async def mutelist(ctx):
     emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(muted)} active timeout(s)")
     await ctx.send(embed=emb)
 
+
 @bot.command()
 async def ban(ctx, *, args: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
-
     user = None
     reason = "No reason"
-
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         if args:
@@ -1478,16 +1521,13 @@ async def ban(ctx, *, args: str = None):
             reason = parts[1]
         elif not user:
             pass
-
     if not user:
         return await cmd_fail(ctx)
     if user.id == ctx.author.id:
         return await cmd_fail(ctx)
-
     try:
         dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
-
         desc = f"Banned **{user}**"
         if reason and reason != "No reason":
             desc += f"\n**Reason:** {reason}"
@@ -1499,7 +1539,6 @@ async def ban(ctx, *, args: str = None):
         )
         emb.set_footer(text=FOOTER_TEXT)
         await ctx.send(embed=emb)
-
         log = discord.Embed(
             title=f"✦ Ban — {BRAND_NAME}",
             color=THEME_COLOR,
@@ -1511,11 +1550,11 @@ async def ban(ctx, *, args: str = None):
         log.add_field(name="Appeal DM", value="Sent" if dm_ok else "Failed", inline=True)
         log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
-
     except discord.Forbidden:
         await ctx.send("I don't have permission to ban that user (check my role position + Ban Members permission).")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
 
 @bot.command()
 async def appeal(ctx, *, _ignored: str = None):
@@ -1529,23 +1568,21 @@ async def appeal(ctx, *, _ignored: str = None):
             "I couldn't DM you. Open your DMs (Privacy Settings → Allow DMs from server members) and try `+appeal` again in my DMs."
         )
 
+
 @bot.command()
 async def unban(ctx, user_id: str = None):
     if str(ctx.author.id) not in BAN_COMMAND_USERS:
         return
     if not user_id:
         return await cmd_fail(ctx)
-
     # Clean the ID (supports raw ID or mention)
     raw = user_id.strip().replace("<@", "").replace("!", "").replace(">", "")
     if not raw.isdigit():
         return await cmd_fail(ctx)
-
     try:
         user = await bot.fetch_user(int(raw))
     except (ValueError, discord.NotFound, discord.HTTPException):
         return await cmd_fail(ctx)
-
     try:
         await ctx.guild.unban(user)
         dm_ok = await dm_unbanned(user)
@@ -1558,7 +1595,6 @@ async def unban(ctx, user_id: str = None):
         )
         emb.set_footer(text=FOOTER_TEXT)
         await ctx.send(embed=emb)
-
         log = discord.Embed(
             title=f"✦ Unban — {BRAND_NAME}",
             color=THEME_COLOR,
@@ -1569,13 +1605,13 @@ async def unban(ctx, user_id: str = None):
         log.add_field(name="DM", value="Sent" if dm_ok else "Failed", inline=True)
         log.set_footer(text=FOOTER_TEXT)
         await send_log(log)
-
     except discord.NotFound:
         await ctx.send("This user is not banned.")
     except discord.Forbidden:
         await ctx.send("I don't have permission to unban members.")
     except Exception as e:
         await ctx.send(f"Failed to unban: {e}")
+
 
 @bot.command()
 async def kick(ctx, *, args: str = None):
@@ -1633,6 +1669,7 @@ async def kick(ctx, *, args: str = None):
         await send_log(log)
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
 
 @bot.command()
 async def clear(ctx, *args):
@@ -1718,6 +1755,7 @@ async def clear(ctx, *args):
     finally:
         clearing_channels.discard(ctx.channel.id)
 
+
 def _resolve_text_channel(ctx, channel_arg: str = None):
     """Resolve a text/voice/stage/forum channel from mention, ID, name, or current channel."""
     if channel_arg:
@@ -1739,6 +1777,7 @@ def _resolve_text_channel(ctx, channel_arg: str = None):
                 return ch
         return None
     return ctx.channel
+
 
 @bot.command()
 async def lock(ctx, channel: str = None):
@@ -1787,6 +1826,7 @@ async def lock(ctx, channel: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 @bot.command()
 async def unlock(ctx, channel: str = None):
     """Unlock a channel — @everyone can send messages again."""
@@ -1834,6 +1874,7 @@ async def unlock(ctx, channel: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 def find_role(guild, role_query: str):
     if not role_query:
         return None
@@ -1863,6 +1904,7 @@ def find_role(guild, role_query: str):
         contains.sort(key=lambda r: (len(r.name), r.name.lower()))
         return contains[0]
     return None
+
 
 @bot.command()
 async def temprole(ctx, *, args: str = None):
@@ -1954,6 +1996,7 @@ async def temprole(ctx, *, args: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 @bot.command()
 async def addrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("addrole")) and not has_role_manage_extra(ctx.author):
@@ -2003,6 +2046,7 @@ async def addrole(ctx, *, args: str = None):
         await ctx.send("1 role was added to 1 member")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
 
 @bot.command()
 async def delrole(ctx, *, args: str = None):
@@ -2054,6 +2098,7 @@ async def delrole(ctx, *, args: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 @bot.command()
 async def derank(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("derank")):
@@ -2086,6 +2131,7 @@ async def derank(ctx, target: str = None):
     except Exception as e:
         await ctx.send(f"Failed: {e}")
 
+
 @bot.command()
 async def create(ctx, emoji: str = None, *, name: str = None):
     if not has_perm(ctx.author, get_cmd_perm("create")):
@@ -2106,6 +2152,77 @@ async def create(ctx, emoji: str = None, *, name: str = None):
         await ctx.send("I don't have permission to create roles.")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+
+
+@bot.command()
+async def roleall(ctx, *, role_query: str = None):
+    """Give a role to every member in the server. SPECIAL_USERS only. Not shown in +perms."""
+    if str(ctx.author.id) not in SPECIAL_USERS:
+        return
+    # Accept role from mention or name/ID
+    role = None
+    if ctx.message.role_mentions:
+        role = ctx.message.role_mentions[0]
+    elif role_query:
+        role = find_role(ctx.guild, role_query.strip())
+    if not role:
+        return await ctx.send("Usage: `+roleall @Role` or `+roleall RoleName`")
+    if role >= ctx.guild.me.top_role:
+        return await ctx.send("My role must be **above** that role so I can assign it.")
+    if role.managed:
+        return await ctx.send("I can't assign managed/integration roles.")
+    # Collect members who don't already have it (skip bots optional — include everyone)
+    targets = [m for m in ctx.guild.members if role not in m.roles]
+    if not targets:
+        return await ctx.send(f"Everyone already has {role.mention}.")
+    status = await ctx.send(
+        embed=discord.Embed(
+            title=f"✦ Role All — {BRAND_NAME}",
+            description=f"Adding {role.mention} to **{len(targets)}** member(s)…\nThis may take a moment.",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        ).set_footer(text=FOOTER_TEXT)
+    )
+    import asyncio
+    success = 0
+    failed = 0
+    for i, member in enumerate(targets):
+        try:
+            await member.add_roles(role, reason=f"roleall by {ctx.author}")
+            success += 1
+        except Exception:
+            failed += 1
+        # Light pacing to reduce rate-limit risk
+        if (i + 1) % 8 == 0:
+            await asyncio.sleep(1.0)
+    emb = discord.Embed(
+        title=f"✦ Role All — {BRAND_NAME}",
+        description=(
+            f"Gave {role.mention} to the server.\n\n"
+            f"**Added:** `{success}`\n"
+            f"**Failed / skipped:** `{failed}`\n"
+            f"**Already had it:** `{len(ctx.guild.members) - len(targets)}`"
+        ),
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    emb.set_footer(text=FOOTER_TEXT)
+    try:
+        await status.edit(embed=emb)
+    except Exception:
+        await ctx.send(embed=emb)
+    log = discord.Embed(
+        title=f"✦ Role All — {BRAND_NAME}",
+        color=THEME_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    log.add_field(name="Role", value=f"{role.mention} (`{role.id}`)", inline=False)
+    log.add_field(name="Moderator", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
+    log.add_field(name="Added", value=str(success), inline=True)
+    log.add_field(name="Failed", value=str(failed), inline=True)
+    log.set_footer(text=FOOTER_TEXT)
+    await send_log(log)
+
 
 @bot.command()
 async def rolemembers(ctx, *, role_query: str = None):
@@ -2131,6 +2248,7 @@ async def rolemembers(ctx, *, role_query: str = None):
     )
     emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(members)} member(s)" + (f" (showing 30)" if len(members) > 30 else ""))
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def bl(ctx, *, args: str = None):
@@ -2191,6 +2309,7 @@ async def bl(ctx, *, args: str = None):
     log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
+
 @bot.command()
 async def unbl(ctx, user_id: str = None):
     if str(ctx.author.id) not in BL_COMMAND_USERS:
@@ -2247,6 +2366,7 @@ async def unbl(ctx, user_id: str = None):
     except Exception:
         pass
 
+
 @bot.command()
 async def linkalt(ctx, *, args: str = None):
     """Link an alt account to a blacklisted main. Perm 5+.
@@ -2256,12 +2376,10 @@ async def linkalt(ctx, *, args: str = None):
         return
     if not args:
         return await ctx.send("Usage: `+linkalt <main_id|@main> <alt_id|@alt>`")
-
     # Parse two targets
     main_user = None
     alt_user = None
     rest = args.strip()
-
     # Prefer mentions first
     mentions = list(ctx.message.mentions)
     if len(mentions) >= 2:
@@ -2285,27 +2403,22 @@ async def linkalt(ctx, *, args: str = None):
             alt_user = await get_target(ctx, parts[1])
         elif len(parts) == 1:
             return await ctx.send("Usage: `+linkalt <main_id|@main> <alt_id|@alt>`")
-
     if not main_user or not alt_user:
         return await cmd_fail(ctx)
     if main_user.id == alt_user.id:
         return await ctx.send("Main and alt must be different accounts.")
-
     main_id = str(main_user.id)
     alt_id = str(alt_user.id)
-
     # Add alt to blacklist
     if alt_id not in blacklist:
         blacklist.append(alt_id)
         save_blacklist()
-
     # Record the link
     if main_id not in linked_alts:
         linked_alts[main_id] = []
     if alt_id not in linked_alts[main_id]:
         linked_alts[main_id].append(alt_id)
         save_linked_alts()
-
     # Ban the alt if possible
     ban_ok = False
     try:
@@ -2313,12 +2426,10 @@ async def linkalt(ctx, *, args: str = None):
         ban_ok = True
     except Exception:
         pass
-
     # Also ensure main is on blacklist (optional but helpful)
     if main_id not in blacklist:
         blacklist.append(main_id)
         save_blacklist()
-
     emb = discord.Embed(
         title=f"✦ Link Alt — {BRAND_NAME}",
         description=(
@@ -2333,7 +2444,6 @@ async def linkalt(ctx, *, args: str = None):
     emb.add_field(name="Alt", value=f"{alt_user} (`{alt_id}`)", inline=True)
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
-
     log = discord.Embed(
         title=f"✦ Link Alt — {BRAND_NAME}",
         color=THEME_COLOR,
@@ -2346,15 +2456,14 @@ async def linkalt(ctx, *, args: str = None):
     log.set_footer(text=FOOTER_TEXT)
     await send_log(log)
 
+
 @bot.command()
 async def blist(ctx):
     """Show all users currently on the server blacklist (related to +bl / +unbl)."""
     if not has_perm(ctx.author, get_cmd_perm("blist")):
         return
-
     # 1) IDs stored in blacklist.json
     from_file = set(str(uid) for uid in blacklist)
-
     # 2) Also scan current server bans whose reason mentions blacklist
     from_bans = {}
     try:
@@ -2366,17 +2475,14 @@ async def blist(ctx):
         pass
     except Exception as e:
         print(f"blist ban scan failed: {e}")
-
     all_ids = list(from_file | set(from_bans.keys()))
     if not all_ids:
         return await empty_result(ctx, "There are no blacklisted users.")
-
     # Build reverse map: alt_id -> main_id for display
     alt_to_main = {}
     for main_id, alts in linked_alts.items():
         for a in alts:
             alt_to_main[str(a)] = str(main_id)
-
     lines = []
     shown = 0
     for uid in all_ids[:50]:
@@ -2403,7 +2509,6 @@ async def blist(ctx):
         except Exception:
             lines.append(f"Unknown User (`{uid}`) [{src}]{link_note}")
         shown += 1
-
     emb = discord.Embed(
         title=f"✦ Blacklist — {BRAND_NAME}",
         description="\n".join(lines) if lines else "*Empty*",
@@ -2425,6 +2530,7 @@ async def blist(ctx):
     )
     await ctx.send(embed=emb)
 
+
 @bot.command()
 async def userinfo(ctx, target: str = None):
     user = await get_target(ctx, target) or ctx.author
@@ -2445,6 +2551,7 @@ async def userinfo(ctx, target: str = None):
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
 
+
 @bot.command()
 async def serverinfo(ctx):
     g = ctx.guild
@@ -2464,6 +2571,7 @@ async def serverinfo(ctx):
     emb.add_field(name="Roles", value=f"`{len(g.roles)}`", inline=True)
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def modstats(ctx):
@@ -2490,6 +2598,7 @@ async def modstats(ctx):
     )
     emb.set_footer(text=f"{FOOTER_TEXT}  •  Based on recorded sanctions / warns / timeouts")
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def banlist(ctx):
@@ -2519,6 +2628,7 @@ async def banlist(ctx):
     emb.set_footer(text=f"{FOOTER_TEXT}  •  {len(bans)} shown" + (" (up to 50)" if len(bans) >= 50 else ""))
     await ctx.send(embed=emb)
 
+
 @bot.command()
 async def baninfo(ctx, target: str = None):
     if not has_perm(ctx.author, get_cmd_perm("baninfo")):
@@ -2545,6 +2655,7 @@ async def baninfo(ctx, target: str = None):
     emb.set_thumbnail(url=user.display_avatar.url)
     emb.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=emb)
+
 
 @bot.command()
 async def changeperm(ctx, command: str = None, level: str = None):
@@ -2575,6 +2686,7 @@ async def changeperm(ctx, command: str = None, level: str = None):
     save_command_perms()
     await ctx.send(f"Permission for `{cmd}` set to **Perm {lvl}**.")
 
+
 @bot.command()
 async def help(ctx):
     view = HelpView(author_id=ctx.author.id)
@@ -2582,6 +2694,7 @@ async def help(ctx):
     emb = view._build_embed()
     msg = await ctx.send(embed=emb, view=view)
     view.message = msg
+
 
 # ==================== APPEAL SYSTEM ====================
 async def dm_ban_appeal(user, reason: str = "No reason"):
@@ -2612,7 +2725,9 @@ async def dm_ban_appeal(user, reason: str = "No reason"):
         except Exception:
             return False
 
+
 appeal_sessions = {}
+
 
 async def start_appeal_session(user):
     appeal_sessions[user.id] = {"step": "user_id", "data": {}}
@@ -2622,6 +2737,7 @@ async def start_appeal_session(user):
         "(Enable Developer Mode → right-click your profile → Copy User ID)\n\n"
         "Type `cancel` anytime to stop."
     )
+
 
 async def continue_appeal_session(message) -> bool:
     uid = message.author.id
@@ -2692,6 +2808,7 @@ async def continue_appeal_session(message) -> bool:
         return True
     return False
 
+
 async def dm_unbanned(user):
     if user is None or getattr(user, "bot", False):
         return False
@@ -2716,6 +2833,7 @@ async def dm_unbanned(user):
             return True
         except Exception:
             return False
+
 
 def _blacklist_pattern(word: str) -> re.Pattern:
     """Whole-word / whole-phrase match only (no partials inside other words)."""
@@ -2759,6 +2877,7 @@ def censor_blacklisted(text: str) -> str:
         out = pat.sub(_blur, out)
     return out
 
+
 def parse_duration(text: str):
     match = re.match(r"^(\d+)([smhd])$", text.lower())
     if not match:
@@ -2770,8 +2889,10 @@ def parse_duration(text: str):
     if unit == "d": return timedelta(days=num)
     return None
 
+
 def _temprole_key(guild_id: int, user_id: int, role_id: int) -> str:
     return f"{guild_id}:{user_id}:{role_id}"
+
 
 async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
     key = _temprole_key(guild_id, user_id, role_id)
@@ -2810,6 +2931,7 @@ async def _remove_temprole(guild_id: int, user_id: int, role_id: int):
     except Exception:
         pass
 
+
 def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: datetime):
     import asyncio
     key = _temprole_key(guild_id, user_id, role_id)
@@ -2820,6 +2942,7 @@ def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: dateti
     if ends_at.tzinfo is None:
         ends_at = ends_at.replace(tzinfo=timezone.utc)
     delay = max(0, (ends_at - now).total_seconds())
+
     async def _runner():
         try:
             await asyncio.sleep(delay)
@@ -2840,6 +2963,7 @@ def schedule_temprole(guild_id: int, user_id: int, role_id: int, ends_at: dateti
     })
     save_temproles()
 
+
 async def restore_temproles():
     import asyncio
     now = datetime.now(timezone.utc)
@@ -2859,6 +2983,7 @@ async def restore_temproles():
         except Exception as e:
             print(f"temprole restore error: {e}")
 
+
 async def send_log(embed: discord.Embed):
     ch = bot.get_channel(LOG_CHANNEL_ID)
     if ch is None:
@@ -2870,6 +2995,7 @@ async def send_log(embed: discord.Embed):
         await ch.send(embed=embed)
     except Exception:
         pass
+
 
 async def send_message_log(embed: discord.Embed):
     """Send message delete / edit / bulk-delete panels to the message log channel."""
@@ -2884,6 +3010,7 @@ async def send_message_log(embed: discord.Embed):
     except Exception:
         pass
 
+
 async def send_appeal(embed: discord.Embed):
     ch = bot.get_channel(APPEAL_CHANNEL_ID)
     if ch is None:
@@ -2896,6 +3023,7 @@ async def send_appeal(embed: discord.Embed):
         await ch.send(embed=embed)
     except Exception:
         await send_log(embed)
+
 
 def _sort_sanctions_newest_first(lst):
     """Return sanctions sorted most-recent first (stable)."""
@@ -2935,6 +3063,7 @@ def add_sanction(user_id: int, reason: str, mod_id: int):
     sanctions_data[uid].append(entry)
     save_sanctions()
     return entry
+
 
 async def get_target(ctx: commands.Context, arg: str = None):
     if ctx.message.mentions:
@@ -2977,6 +3106,7 @@ async def get_target(ctx: commands.Context, arg: str = None):
                     return m
     return None
 
+
 async def get_member(guild: discord.Guild, user):
     if user is None or guild is None:
         return None
@@ -2996,12 +3126,14 @@ async def get_member(guild: discord.Guild, user):
 
 CMD_FAIL_MSG = "I'm sorry this command you tried to use is not going to work with your perm or u just did the command wrong - SONION"
 
+
 async def cmd_fail(ctx):
     """Unified reply when a command fails due to perms or bad usage."""
     try:
         await ctx.send(CMD_FAIL_MSG)
     except Exception:
         pass
+
 
 async def empty_result(ctx, text: str):
     """Send a reply that stays (does not delete the command or the response)."""
@@ -3019,7 +3151,9 @@ async def empty_result(ctx, text: str):
         except Exception:
             pass
 
+
 SERVER_INVITE = "https://discord.gg/GtRfjpAjsA"
+
 
 # ==================== KEEP-ALIVE ====================
 class _HealthHandler(BaseHTTPRequestHandler):
@@ -3032,6 +3166,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+
 def start_keep_alive():
     port = int(os.environ.get("PORT", 8080))
     try:
@@ -3041,6 +3176,7 @@ def start_keep_alive():
         print(f"Keep-alive server running on port {port}")
     except Exception as e:
         print(f"Keep-alive server failed to start: {e}")
+
 
 # ==================== RUN ====================
 start_keep_alive()
