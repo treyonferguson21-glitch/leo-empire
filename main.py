@@ -1230,7 +1230,7 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
             user = await get_target(ctx, arg1)
         number = arg2
     if not user or not number or not str(number).isdigit():
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+del sanction <@member> <number>`")
     uid = str(user.id)
     num = int(number)
     lst = sanctions_data.get(uid, [])
@@ -1239,7 +1239,8 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
     # Display numbers are newest-first (#1 = most recent) — match that order
     ordered = _sort_sanctions_newest_first(lst)
     if num < 1 or num > len(ordered):
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+del sanction <@member> <number>`")
+
     deleted = ordered[num - 1]
     # Remove the exact entry object from the stored list
     sanctions_data[uid] = [s for s in lst if s is not deleted]
@@ -1289,9 +1290,10 @@ async def warn(ctx, *, args: str = None):
         if user and len(parts) > 1:
             reason = parts[1]
         elif not user:
-            return await cmd_fail(ctx)
+            return await cmd_usage(ctx, "`+warn <@member> [reason]`")
     if not user:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+warn <@member> [reason]`")
+
     target_member = await get_member(ctx.guild, user)
     if target_member and not can_moderate(ctx.author, target_member):
         return await ctx.send("You can't warn someone with an equal or higher rank.")
@@ -1322,7 +1324,8 @@ async def clearwarns(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+clearwarns <@member>`")
+
     target_member = await get_member(ctx.guild, user)
     if target_member and not can_moderate(ctx.author, target_member):
         return await ctx.send("You can't clear warns for someone with an equal or higher rank.")
@@ -1352,7 +1355,7 @@ async def tempmute(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("tempmute")):
         return
     if not args:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+tempmute <@member> <duration> [reason]`  (e.g. `30s` `10m` `1h` `7d`)")
     user = None
     duration = None
     reason = "No reason"
@@ -1375,17 +1378,18 @@ async def tempmute(ctx, *, args: str = None):
     else:
         parts = args.split(None, 2)
         if not parts:
-            return await cmd_fail(ctx)
+            return await cmd_usage(ctx, "`+tempmute <@member> <duration> [reason]`  (e.g. `30s` `10m` `1h` `7d`)")
         user = await get_target(ctx, parts[0])
         duration = parts[1] if len(parts) > 1 else None
         reason = parts[2] if len(parts) > 2 else "No reason"
     if not user or not duration:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+tempmute <@member> <duration> [reason]`  (e.g. `30s` `10m` `1h` `7d`)")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+tempmute <@member> <duration> [reason]`  (e.g. `30s` `10m` `1h` `7d`)")
     if member.id == ctx.author.id:
         return await cmd_fail(ctx)
+
     if not can_moderate(ctx.author, member):
         return await ctx.send("You can't tempmute someone with an equal or higher rank.")
     delta = parse_duration(duration)
@@ -1427,10 +1431,11 @@ async def unmute(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+unmute <@member>`")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+unmute <@member>`")
+
     if not can_moderate(ctx.author, member):
         return await ctx.send("You can't unmute someone with an equal or higher rank.")
     try:
@@ -1528,6 +1533,7 @@ async def ban(ctx, *, args: str = None):
     try:
         dm_ok = await dm_ban_appeal(user, reason)
         await ctx.guild.ban(user, reason=reason)
+
         desc = f"Banned **{user}**"
         if reason and reason != "No reason":
             desc += f"\n**Reason:** {reason}"
@@ -1583,6 +1589,7 @@ async def unban(ctx, user_id: str = None):
         user = await bot.fetch_user(int(raw))
     except (ValueError, discord.NotFound, discord.HTTPException):
         return await cmd_fail(ctx)
+
     try:
         await ctx.guild.unban(user)
         dm_ok = await dm_unbanned(user)
@@ -1646,6 +1653,7 @@ async def kick(ctx, *, args: str = None):
         return await ctx.send("You can't kick someone with an equal or higher rank.")
     try:
         await member.kick(reason=reason)
+
         desc = f"Kicked **{user}**"
         if reason and reason != "No reason":
             desc += f"\n**Reason:** {reason}"
@@ -1911,7 +1919,8 @@ async def temprole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("temprole")):
         return
     if not args:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
+
     rest = args
     user = None
     if ctx.message.mentions:
@@ -1930,12 +1939,12 @@ async def temprole(ctx, *, args: str = None):
                 user = await get_target(ctx, None)
     tokens = rest.strip().split()
     if not tokens:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     if user is None and tokens[0].isdigit() and len(tokens[0]) >= 15:
         user = await get_target(ctx, tokens[0])
         tokens = tokens[1:]
     if not tokens:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     duration = None
     duration_idx = None
     for i, tok in enumerate(tokens):
@@ -1944,22 +1953,23 @@ async def temprole(ctx, *, args: str = None):
             duration_idx = i
             break
     if duration is None:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     role_tokens = tokens[:duration_idx] + tokens[duration_idx + 1:]
     role_name = " ".join(role_tokens).strip()
     if not role_name:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     if user is None:
         user = ctx.author
     delta = parse_duration(duration)
     if not delta or delta.total_seconds() < 1:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
     role = find_role(ctx.guild, role_name)
     if not role:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+temprole <@member> <duration> <role>`  (e.g. `1h` `1d`)")
+
     # Only SPECIAL_USERS can assign roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
         if str(ctx.author.id) not in SPECIAL_USERS:
@@ -2053,7 +2063,8 @@ async def delrole(ctx, *, args: str = None):
     if not has_perm(ctx.author, get_cmd_perm("delrole")) and not has_role_manage_extra(ctx.author):
         return
     if not args:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+delrole <@member> <role>`")
+
     user = None
     role_name = None
     if ctx.message.mentions:
@@ -2077,13 +2088,13 @@ async def delrole(ctx, *, args: str = None):
             user = ctx.author
             role_name = args.strip()
     if not user or not role_name:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+delrole <@member> <role>`")
     member = await get_member(ctx.guild, user)
     if not member:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+delrole <@member> <role>`")
     role = find_role(ctx.guild, role_name)
     if not role:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+delrole <@member> <role>`")
     # Only SPECIAL_USERS can manage roles >= their own top role (and only if bot is above that role)
     if role >= ctx.author.top_role:
         if str(ctx.author.id) not in SPECIAL_USERS:
@@ -2105,12 +2116,13 @@ async def derank(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+derank <@member>`")
     if user.id == ctx.author.id:
         return await cmd_fail(ctx)
     member = await get_member(ctx.guild, user)
     if not member:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+derank <@member>`")
+
     if not can_moderate(ctx.author, member):
         return await ctx.send("You can't derank someone with an equal or higher staff rank.")
     # Only remove staff roles from the perm hierarchy (Test Mod, Mod, Senior Mod, etc.)
@@ -2140,7 +2152,8 @@ async def create(ctx, emoji: str = None, *, name: str = None):
         name = emoji
         emoji = None
     if not name:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+create [emoji] <name>`")
+
     role_name = f"{emoji} {name}".strip() if emoji else name.strip()
     existing = discord.utils.find(lambda r: r.name.lower() == role_name.lower(), ctx.guild.roles)
     if existing:
@@ -2166,7 +2179,7 @@ async def roleall(ctx, *, role_query: str = None):
     elif role_query:
         role = find_role(ctx.guild, role_query.strip())
     if not role:
-        return await ctx.send("Usage: `+roleall @Role` or `+roleall RoleName`")
+        return await cmd_usage(ctx, "`+roleall @Role` or `+roleall RoleName`")
     if role >= ctx.guild.me.top_role:
         return await ctx.send("My role must be **above** that role so I can assign it.")
     if role.managed:
@@ -2229,13 +2242,14 @@ async def rolemembers(ctx, *, role_query: str = None):
     if not has_perm(ctx.author, get_cmd_perm("rolemembers")):
         return
     if not role_query:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+rolemembers <role>`")
     role = discord.utils.find(
         lambda r: r.name.lower() == role_query.lower() or str(r.id) == role_query,
         ctx.guild.roles
     )
     if not role:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+rolemembers <role>`")
+
     members = role.members
     if not members:
         return await ctx.send(f"No members have the role **{role.name}**.")
@@ -2281,6 +2295,7 @@ async def bl(ctx, *, args: str = None):
         blacklist.append(uid)
         save_blacklist()
     dm_ok = await dm_ban_appeal(user, reason)
+
     try:
         await ctx.guild.ban(user, reason=f"Blacklisted: {reason}")
     except Exception:
@@ -2635,7 +2650,8 @@ async def baninfo(ctx, target: str = None):
         return
     user = await get_target(ctx, target)
     if not user:
-        return await cmd_fail(ctx)
+        return await cmd_usage(ctx, "`+baninfo <@member|id>`")
+
     try:
         ban_entry = await ctx.guild.fetch_ban(user)
     except discord.NotFound:
@@ -3131,6 +3147,14 @@ async def cmd_fail(ctx):
     """Unified reply when a command fails due to perms or bad usage."""
     try:
         await ctx.send(CMD_FAIL_MSG)
+    except Exception:
+        pass
+
+
+async def cmd_usage(ctx, text: str):
+    """Show how to use a command when required args are missing."""
+    try:
+        await ctx.send(f"Usage: {text}")
     except Exception:
         pass
 
