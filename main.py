@@ -1474,7 +1474,7 @@ async def clear(ctx, *args):
             if num > 10_000_000_000_000_000:
                 try:
                     target = await bot.fetch_user(num)
-                    # +clear <user_id> with no amount → 14 days of that user
+                    # +clear <user_id> with no amount → last 7 hours of that user
                     explicit_amount = False
                 except Exception:
                     amount = max(1, min(num, 100))
@@ -1512,9 +1512,9 @@ async def clear(ctx, *args):
         if target is None:
             await ctx.channel.purge(limit=amount + 1, check=check)
         elif not explicit_amount:
-            # +clear @user (or reply / user id) with no number → all of their
-            # messages from the last 14 days (Discord bulk-delete limit)
-            cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+            # +clear @user (or reply / user id) with no number → their messages
+            # from the last ~7 hours (6–8 hour window)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=7)
             await ctx.channel.purge(limit=None, check=check, after=cutoff)
         else:
             left = amount
