@@ -205,7 +205,7 @@ DEFAULT_COMMAND_PERMS = {
     "clear": 4,
     "lock": 4,
     "unlock": 4,
-    "create": 99,  # special users only (handled separately)
+    "create": 6,
     "temprole": 6,
     "syncroles": 6,
     "modstats": 6,
@@ -218,7 +218,7 @@ DEFAULT_COMMAND_PERMS = {
     "kick": 99,
     "bl": 99,
     "unbl": 99,
-    "linkalt": 99,
+    "linkalt": 5,
 }
 
 def save_sanctions(): save_json(SANCTIONS_FILE, sanctions_data)
@@ -540,28 +540,37 @@ async def filter_bad_content(message) -> bool:
             await send_log(emb)
             return True
 
-    for word in BLACKLISTED_WORDS:
-        if word in content_lower:
-            try:
-                await message.delete()
-            except Exception:
-                pass
-            add_sanction(message.author.id, "bad word", bot.user.id if bot.user else 0)
-            await _warn_and_cleanup(f"{message.author.mention} you said a blacklisted word")
-            # Censor the bad word so it doesn't show fully in staff logs
-            censored_msg = censor_blacklisted(content[:800])
-            censored_word = censor_blacklisted(word)
-            emb = discord.Embed(
-                title=f"✦ Blacklisted Word — {BRAND_NAME}",
-                color=THEME_COLOR,
-                timestamp=datetime.now(timezone.utc),
-            )
-            emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
-            emb.add_field(name="Word", value=censored_word)
-            emb.add_field(name="Message", value=f"```{censored_msg}```", inline=False)
-            emb.set_footer(text=FOOTER_TEXT)
-            await send_log(emb)
-            return True
+    # Whole-word only — partial matches inside other words are ignored
+    hits = _find_blacklisted(content)
+    if hits:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        add_sanction(message.author.id, "bad word", bot.user.id if bot.user else 0)
+        await _warn_and_cleanup(f"{message.author.mention} you said a blacklisted word")
+        # Fully blur the matched word(s) in staff logs
+        censored_msg = censor_blacklisted(content[:800])
+        # Show each unique matched word fully blurred
+        unique_words = []
+        seen = set()
+        for matched, _base in hits:
+            key = matched.lower()
+            if key not in seen:
+                seen.add(key)
+                unique_words.append("•" * len(matched))
+        censored_word = ", ".join(unique_words) if unique_words else "••••"
+        emb = discord.Embed(
+            title=f"✦ Blacklisted Word — {BRAND_NAME}",
+            color=THEME_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        emb.add_field(name="User", value=f"{message.author} (`{message.author.id}`)")
+        emb.add_field(name="Word", value=censored_word)
+        emb.add_field(name="Message", value=f"```{censored_msg}```", inline=False)
+        emb.set_footer(text=FOOTER_TEXT)
+        await send_log(emb)
+        return True
 
     return False
 
@@ -862,15 +871,15 @@ HELP_PAGES = [
         "title": "Perm 5 – 6",
         "desc": "Senior staff & management",
         "fields": [
-            ("▸ Perm 5", "`+banlist`\n`+baninfo <id|mention>`\n`+blist`"),
-            ("▸ Perm 6", "`+temprole <member> <duration> <role>`\n`+modstats`\n`+changeperm <command> <level|none>`\n`+syncroles`"),
+            ("▸ Perm 5", "`+banlist`\n`+baninfo <id|mention>`\n`+blist`\n`+linkalt <main> <alt>`"),
+            ("▸ Perm 6", "`+temprole <member> <duration> <role>`\n`+modstats`\n`+changeperm <command> <level|none>`\n`+syncroles`\n`+create [emoji] [name]`"),
         ],
     },
     {
         "title": "Special Users only",
         "desc": "Restricted to specific user IDs (not role-based)",
         "fields": [
-            ("▸ Special", "`+ban`\n`+unban`\n`+kick`\n`+bl`\n`+unbl`\n`+linkalt <main> <alt>`\n`+create [emoji] [name]`"),
+            ("▸ Special", "`+ban`\n`+unban`\n`+kick`\n`+bl`\n`+unbl`"),
         ],
     },
 ]
@@ -982,22 +991,18 @@ async def perms(ctx):
         user_cmds.setdefault(str(uid), set()).update(["bl", "unbl"])
     for uid in KICK_COMMAND_USERS:
         user_cmds.setdefault(str(uid), set()).add("kick")
-    for uid in SPECIAL_USERS:
-        user_cmds.setdefault(str(uid), set()).update(["linkalt", "create"])
-
     # Preferred display order of cmds
-    cmd_order = ["ban", "unban", "bl", "unbl", "kick", "linkalt", "create"]
+    cmd_order = ["ban", "unban", "bl", "unbl", "kick"]
 
-    # Vertical command boxes (one cmd per line) — taller rectangles instead of sideways
+    # Compact single-line command boxes (smaller height)
     blocks = []
     for uid in sorted(user_cmds.keys(), key=lambda x: x):
         cmds = [c for c in cmd_order if c in user_cmds[uid]]
         if not cmds:
             continue
-        # Stack commands vertically (one per line)
-        cmd_block = "\n".join(cmds)
+        cmd_line = " ".join(cmds)
         # Visual mention only — AllowedMentions(users=False) below so no real ping
-        blocks.append(f"<@{uid}>\n```\n{cmd_block}\n```")
+        blocks.append(f"<@{uid}>\n```\n{cmd_line}\n```")
 
     special_value = "\n".join(blocks) if blocks else "*None*"
     # Discord field value limit is 1024 chars
@@ -1131,14 +1136,16 @@ async def sanctions(ctx, target: str = None):
                 emb.set_author(name=f"User {uid}")
             emb.set_footer(text=FOOTER_TEXT)
             return await ctx.send(embed=emb)
-        # Newest first, renumber 1, 2, 3...
-        ordered = list(reversed(lst))
+        # Most recent first (#1 = newest by date/time)
+        ordered = _sort_sanctions_newest_first(lst)
         lines = []
         for i, s in enumerate(ordered, 1):
             date = s.get("date", "?")
             reason = s.get("reason", "No reason")
-            lines.append(f"**{i}** — {date}: {reason}")
-        text = "\n".join(lines)
+            mod = s.get("moderator", "")
+            mod_bit = f" — <@{mod}>" if mod and str(mod) != "0" else ""
+            lines.append(f"**{i}.** `{date}`\n↳ {reason}{mod_bit}")
+        text = "\n\n".join(lines)
         if len(text) > 4000:
             text = text[:4000] + "\n..."
         emb = discord.Embed(
@@ -1153,7 +1160,8 @@ async def sanctions(ctx, target: str = None):
             emb.set_thumbnail(url=avatar)
         else:
             emb.set_author(name=f"User {uid}")
-        emb.set_footer(text=FOOTER_TEXT)
+        emb.add_field(name="Total", value=f"`{len(ordered)}`", inline=True)
+        emb.set_footer(text=f"{FOOTER_TEXT}  •  #1 = most recent")
         await ctx.send(embed=emb)
     except Exception as e:
         await ctx.send(f"Failed to load sanctions: `{e}`")
@@ -1184,10 +1192,16 @@ async def del_sanction(ctx, action: str = None, arg1: str = None, arg2: str = No
         return await cmd_fail(ctx)
     uid = str(user.id)
     num = int(number)
-    if uid not in sanctions_data or not any(s["id"] == num for s in sanctions_data[uid]):
+    lst = sanctions_data.get(uid, [])
+    if not lst:
         return await cmd_fail(ctx)
-    deleted = next(s for s in sanctions_data[uid] if s["id"] == num)
-    sanctions_data[uid] = [s for s in sanctions_data[uid] if s["id"] != num]
+    # Display numbers are newest-first (#1 = most recent) — match that order
+    ordered = _sort_sanctions_newest_first(lst)
+    if num < 1 or num > len(ordered):
+        return await cmd_fail(ctx)
+    deleted = ordered[num - 1]
+    # Remove the exact entry object from the stored list
+    sanctions_data[uid] = [s for s in lst if s is not deleted]
     for i, s in enumerate(sanctions_data[uid], 1):
         s["id"] = i
     save_sanctions()
@@ -2070,7 +2084,7 @@ async def derank(ctx, target: str = None):
 
 @bot.command()
 async def create(ctx, emoji: str = None, *, name: str = None):
-    if str(ctx.author.id) not in SPECIAL_USERS:
+    if not has_perm(ctx.author, get_cmd_perm("create")):
         return
     if emoji and not name:
         name = emoji
@@ -2231,10 +2245,10 @@ async def unbl(ctx, user_id: str = None):
 
 @bot.command()
 async def linkalt(ctx, *, args: str = None):
-    """Link an alt account to a blacklisted main. Special users only.
+    """Link an alt account to a blacklisted main. Perm 5+.
     Usage: +linkalt <main> <alt>
     Adds the alt to the blacklist and records the link."""
-    if str(ctx.author.id) not in SPECIAL_USERS:
+    if not has_perm(ctx.author, get_cmd_perm("linkalt")):
         return
     if not args:
         return await ctx.send("Usage: `+linkalt <main_id|@main> <alt_id|@alt>`")
@@ -2396,7 +2410,7 @@ async def blist(ctx):
         name="Info",
         value=(
             "These users are **banned + blacklisted** and are **auto-banned on join**.\n"
-            "Use `+linkalt <main> <alt>` (special users) to mark and blacklist an alt.\n"
+            "Use `+linkalt <main> <alt>` (Perm 5+) to mark and blacklist an alt.\n"
             "Use `+unbl <user_id>` to remove from the blacklist."
         ),
         inline=False,
@@ -2699,21 +2713,46 @@ async def dm_unbanned(user):
         except Exception:
             return False
 
+def _blacklist_pattern(word: str) -> re.Pattern:
+    """Whole-word / whole-phrase match only (no partials inside other words)."""
+    # Escape the phrase, allow flexible internal whitespace for multi-word entries
+    parts = [re.escape(p) for p in word.split() if p]
+    if not parts:
+        parts = [re.escape(word)]
+    body = r"\s+".join(parts)
+    # Boundaries: not a letter/digit/_ on either side (so "class" won't match "ass")
+    return re.compile(rf"(?<![A-Za-z0-9_]){body}(?![A-Za-z0-9_])", re.IGNORECASE)
+
+
+def _find_blacklisted(text: str):
+    """Return list of (matched_text, pattern_word) for whole-word blacklist hits."""
+    if not text:
+        return []
+    hits = []
+    lower = text.lower()
+    # Longest phrases first so multi-word matches win over single words
+    for word in sorted(BLACKLISTED_WORDS, key=len, reverse=True):
+        if not word:
+            continue
+        pat = _blacklist_pattern(word)
+        for m in pat.finditer(text):
+            hits.append((m.group(0), word))
+    return hits
+
+
 def censor_blacklisted(text: str) -> str:
+    """Blur entire blacklisted words/phrases (full mask, whole-word only)."""
     if not text:
         return text
     out = text
-    words = sorted(BLACKLISTED_WORDS, key=len, reverse=True)
-    for word in words:
+    # Apply longest matches first so multi-word phrases are fully blurred
+    for word in sorted(BLACKLISTED_WORDS, key=len, reverse=True):
         if not word:
             continue
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
-        def _blur(m, _w=word):
-            w = m.group(0)
-            if len(w) <= 2:
-                return "*" * len(w)
-            return w[0] + ("•" * (len(w) - 2)) + w[-1]
-        out = pattern.sub(_blur, out)
+        pat = _blacklist_pattern(word)
+        def _blur(m):
+            return "•" * len(m.group(0))
+        out = pat.sub(_blur, out)
     return out
 
 def parse_duration(text: str):
@@ -2854,14 +2893,39 @@ async def send_appeal(embed: discord.Embed):
     except Exception:
         await send_log(embed)
 
+def _sort_sanctions_newest_first(lst):
+    """Return sanctions sorted most-recent first (stable)."""
+    def _key(s):
+        ts = s.get("timestamp")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts)
+            except Exception:
+                pass
+        # Fallback: parse date field (supports "dd/mm/YYYY" or "dd/mm/YYYY HH:MM")
+        d = s.get("date") or ""
+        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(d, fmt).replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        return datetime.min.replace(tzinfo=timezone.utc)
+    # Stable sort: reverse chronological; original list order breaks ties
+    indexed = list(enumerate(lst))
+    indexed.sort(key=lambda pair: (_key(pair[1]), pair[0]), reverse=True)
+    return [s for _, s in indexed]
+
+
 def add_sanction(user_id: int, reason: str, mod_id: int):
     uid = str(user_id)
     if uid not in sanctions_data:
         sanctions_data[uid] = []
+    now = datetime.now(timezone.utc)
     entry = {
         "id": len(sanctions_data[uid]) + 1,
         "reason": reason,
-        "date": datetime.now().strftime("%d/%m/%Y"),
+        "date": now.strftime("%d/%m/%Y %H:%M"),
+        "timestamp": now.isoformat(),
         "moderator": str(mod_id)
     }
     sanctions_data[uid].append(entry)
